@@ -1347,19 +1347,33 @@ app.get("/api/devices", async (req, res) => {
     const deviceList = Array.from(deviceMap.values()).map(device => {
         const raw = device.getRawDevice();
         const stationSN = raw.station_sn;
-        const isStandalone = stationSN === device.getSerial() ||
+        const serial = device.getSerial();
+        const isStandalone = stationSN === serial ||
                             stationSN.startsWith("T8416") ||
                             stationSN.startsWith("T85V0") ||
                             stationSN.startsWith("T8170") ||
                             stationSN.startsWith("T8131");
+
+        // In ws mode, infer camera/doorbell from serial prefix since we don't have Device class methods
+        let isDoorbell, isCamera;
+        if (connectionMode === "ws") {
+            isDoorbell = serial.startsWith("T82");
+            isCamera = serial.startsWith("T81") || serial.startsWith("T84") ||
+                      serial.startsWith("T85") || serial.startsWith("T87") ||
+                      serial.startsWith("T82");
+        } else {
+            isDoorbell = Device.isDoorbell(raw.device_type);
+            isCamera = Device.isCamera(raw.device_type);
+        }
+
         return {
-            serial: device.getSerial(),
+            serial: serial,
             name: device.getName(),
             model: raw.device_model,
             type: raw.device_type,
             stationSN: stationSN,
-            isDoorbell: Device.isDoorbell(raw.device_type),
-            isCamera: Device.isCamera(raw.device_type),
+            isDoorbell: isDoorbell,
+            isCamera: isCamera,
             isStandalone: isStandalone,
         };
     });
