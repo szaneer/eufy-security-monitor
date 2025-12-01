@@ -92,6 +92,10 @@ let periodicTimer = null;
 let eventQueue = [];
 let isProcessingEvent = false;
 
+// Track active P2P sessions per HomeBase to prevent conflicts
+// Key: stationSerial, Value: { deviceSerial, type, startTime }
+const activeP2PSessions = new Map();
+
 // ==================== TTS FUNCTIONS ====================
 
 async function announceToHomeAssistant(message) {
@@ -105,27 +109,62 @@ async function announceToHomeAssistant(message) {
         return;
     }
 
-    try {
-        const response = await fetch(`${haApiUrl}/services/tts/speak`, {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${supervisorToken}`,
-                "Content-Type": "application/json",
+    console.log(`[TTS] Attempting to announce: "${message}" on ${ttsSettings.mediaPlayer}`);
+
+    // Try the modern tts.speak service first (requires HA 2023.1+)
+    // This uses the default TTS platform configured in HA
+    const ttsServices = [
+        {
+            name: "tts.speak",
+            endpoint: `${haApiUrl}/services/tts/speak`,
+            body: {
+                media_player_entity_id: ttsSettings.mediaPlayer,
+                message: message,
             },
-            body: JSON.stringify({
+        },
+        {
+            name: "tts.google_translate_say",
+            endpoint: `${haApiUrl}/services/tts/google_translate_say`,
+            body: {
                 entity_id: ttsSettings.mediaPlayer,
                 message: message,
-            }),
-        });
+            },
+        },
+        {
+            name: "tts.cloud_say",
+            endpoint: `${haApiUrl}/services/tts/cloud_say`,
+            body: {
+                entity_id: ttsSettings.mediaPlayer,
+                message: message,
+            },
+        },
+    ];
 
-        if (!response.ok) {
-            console.error(`[TTS] Failed to announce: ${response.status}`);
-        } else {
-            console.log(`[TTS] Announced: ${message}`);
+    for (const service of ttsServices) {
+        try {
+            console.log(`[TTS] Trying ${service.name}...`);
+            const response = await fetch(service.endpoint, {
+                method: "POST",
+                headers: {
+                    "Authorization": `Bearer ${supervisorToken}`,
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(service.body),
+            });
+
+            if (response.ok) {
+                console.log(`[TTS] Success with ${service.name}: "${message}"`);
+                return;
+            } else {
+                const errorText = await response.text();
+                console.log(`[TTS] ${service.name} returned ${response.status}: ${errorText}`);
+            }
+        } catch (err) {
+            console.log(`[TTS] ${service.name} error: ${err.message}`);
         }
-    } catch (err) {
-        console.error("[TTS] Error calling Home Assistant TTS:", err);
     }
+
+    console.error("[TTS] All TTS services failed. Check your HA TTS configuration.");
 }
 
 // ==================== AI FUNCTIONS ====================
@@ -938,6 +977,8 @@ async function stopStream() {
                         // Ignore
                     }
                 }
+                // Clear the P2P session tracking
+                activeP2PSessions.delete(stationSN);
             }
         } catch (e) {
             // Ignore
@@ -965,6 +1006,8 @@ async function stopAllDashboardStreams() {
                             // Ignore
                         }
                     }
+                    // Clear P2P session tracking
+                    activeP2PSessions.delete(stationSN);
                 }
             } catch (e) {
                 // Ignore
@@ -1183,11 +1226,49 @@ io.on("connection", (socket) => {
                 return;
             }
 
+            // Check for P2P conflict - only one stream at a time per HomeBase
+            const activeSession = activeP2PSessions.get(stationSN);
+            if (activeSession && activeSession.deviceSerial !== deviceSerial) {
+                const activeDevice = deviceMap.get(activeSession.deviceSerial);
+                const activeName = activeDevice ? activeDevice.getName() : activeSession.deviceSerial;
+                console.log(`[Stream] P2P conflict detected: ${activeName} is currently streaming on this HomeBase`);
+
+                // Stop the existing stream first
+                console.log(`[Stream] Auto-stopping existing stream for ${activeName}...`);
+                socket.emit("stream-info", `Stopping ${activeName} to start ${device.getName()}...`);
+
+                try {
+                    await station.stopLivestream(activeDevice || device);
+                    activeP2PSessions.delete(stationSN);
+                    // Wait for the stop to complete
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } catch (stopErr) {
+                    console.log(`[Stream] Error stopping existing stream: ${stopErr.message}`);
+                }
+            }
+
+            // Track this session
+            activeP2PSessions.set(stationSN, {
+                deviceSerial,
+                type: "single",
+                startTime: Date.now(),
+            });
+
             currentStreamDevice = deviceSerial;
+            console.log(`[Stream] Starting stream for ${device.getName()}...`);
             await station.startLivestream(device);
         } catch (error) {
             console.error("Error starting stream:", error);
-            socket.emit("error", error.message || "Failed to start stream");
+            const errorMsg = error.message || "Failed to start stream";
+
+            // Provide more helpful error messages
+            if (errorMsg.includes("P2P") || errorMsg.includes("connection")) {
+                socket.emit("error", "P2P connection failed. The HomeBase may be busy or unreachable. Try again in a few seconds.");
+            } else if (errorMsg.includes("timeout")) {
+                socket.emit("error", "Stream request timed out. The camera may be offline or out of range.");
+            } else {
+                socket.emit("error", errorMsg);
+            }
         }
     });
 

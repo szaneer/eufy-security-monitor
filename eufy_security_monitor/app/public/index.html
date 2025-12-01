@@ -291,6 +291,10 @@
             color: #4ecca3;
         }
 
+        .log-entry.info {
+            color: #3498db;
+        }
+
         .log-entry .time {
             color: #666;
             margin-right: 10px;
@@ -1513,6 +1517,11 @@
             log(`Error: ${message}`, 'error');
             btnStart.disabled = false;
             btnStop.disabled = true;
+        });
+
+        // Stream info (e.g., P2P conflict resolution messages)
+        socket.on('stream-info', (message) => {
+            log(`Info: ${message}`, 'info');
         });
 
         // Monitoring events
