@@ -1,4 +1,4 @@
-#!/usr/bin/with-contenv bashio
+#!/command/with-contenv bashio
 
 # Read configuration from Home Assistant
 export EUFY_USERNAME=$(bashio::config 'eufy_username')

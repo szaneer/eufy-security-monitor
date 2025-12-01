@@ -1053,6 +1053,44 @@ app.get(`${basePath}/api/events`, (req, res) => {
     }
 });
 
+// API endpoint to get Home Assistant media players
+app.get(`${basePath}/api/ha/media_players`, async (req, res) => {
+    if (!supervisorToken) {
+        return res.json({ error: "Not running as Home Assistant addon", entities: [] });
+    }
+
+    try {
+        const response = await fetch(`${haApiUrl}/states`, {
+            method: "GET",
+            headers: {
+                "Authorization": `Bearer ${supervisorToken}`,
+                "Content-Type": "application/json",
+            },
+        });
+
+        if (!response.ok) {
+            console.error(`[HA API] Failed to fetch states: ${response.status}`);
+            return res.json({ error: `Failed to fetch from HA: ${response.status}`, entities: [] });
+        }
+
+        const states = await response.json();
+        const mediaPlayers = states
+            .filter(entity => entity.entity_id.startsWith("media_player."))
+            .map(entity => ({
+                entity_id: entity.entity_id,
+                friendly_name: entity.attributes.friendly_name || entity.entity_id,
+                state: entity.state,
+            }))
+            .sort((a, b) => a.friendly_name.localeCompare(b.friendly_name));
+
+        console.log(`[HA API] Found ${mediaPlayers.length} media players`);
+        res.json({ entities: mediaPlayers });
+    } catch (err) {
+        console.error("[HA API] Error fetching media players:", err);
+        res.json({ error: err.message, entities: [] });
+    }
+});
+
 // ==================== SOCKET.IO ====================
 
 io.on("connection", (socket) => {

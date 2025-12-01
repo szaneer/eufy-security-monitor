@@ -1095,8 +1095,10 @@
                 </div>
                 <div class="form-group">
                     <label>Media Player Entity</label>
-                    <input type="text" id="settings-tts-player" placeholder="media_player.living_room_speaker">
-                    <small>Enter the entity_id of your Home Assistant media player</small>
+                    <select id="settings-tts-player">
+                        <option value="">-- Select a media player --</option>
+                    </select>
+                    <small id="media-player-status">Loading media players...</small>
                 </div>
             </div>
 
@@ -1526,7 +1528,13 @@
             document.getElementById('settings-monitoring-enabled').value = settings.enabled ? 'true' : 'false';
             document.getElementById('settings-monitoring-interval').value = settings.periodicInterval.toString();
             document.getElementById('settings-tts-enabled').value = settings.ttsEnabled ? 'true' : 'false';
-            document.getElementById('settings-tts-player').value = settings.ttsMediaPlayer || '';
+
+            // Store and set media player value
+            currentMediaPlayer = settings.ttsMediaPlayer || '';
+            const ttsPlayerSelect = document.getElementById('settings-tts-player');
+            if (ttsPlayerSelect && currentMediaPlayer) {
+                ttsPlayerSelect.value = currentMediaPlayer;
+            }
         });
 
         socket.on('monitoring-event', (event) => {
@@ -1652,9 +1660,51 @@
             showProviderSettings(settingsProvider.value);
         });
 
+        let mediaPlayersCache = [];
+        let currentMediaPlayer = '';
+
+        async function loadMediaPlayers() {
+            const selectEl = document.getElementById('settings-tts-player');
+            const statusEl = document.getElementById('media-player-status');
+
+            try {
+                statusEl.textContent = 'Loading media players...';
+                const response = await fetch(`${basePath}/api/ha/media_players`);
+                const data = await response.json();
+
+                if (data.error && data.entities.length === 0) {
+                    statusEl.textContent = data.error;
+                    return;
+                }
+
+                mediaPlayersCache = data.entities || [];
+
+                // Clear existing options except the first one
+                selectEl.innerHTML = '<option value="">-- Select a media player --</option>';
+
+                mediaPlayersCache.forEach(player => {
+                    const option = document.createElement('option');
+                    option.value = player.entity_id;
+                    option.textContent = `${player.friendly_name} (${player.state})`;
+                    selectEl.appendChild(option);
+                });
+
+                // Set the current value if we have one
+                if (currentMediaPlayer) {
+                    selectEl.value = currentMediaPlayer;
+                }
+
+                statusEl.textContent = `Found ${mediaPlayersCache.length} media player(s)`;
+            } catch (err) {
+                statusEl.textContent = 'Failed to load media players';
+                console.error('Error loading media players:', err);
+            }
+        }
+
         btnSettings.addEventListener('click', () => {
             socket.emit('get-ai-settings');
             socket.emit('get-monitoring-settings');
+            loadMediaPlayers();
             settingsModal.classList.add('active');
         });
 
