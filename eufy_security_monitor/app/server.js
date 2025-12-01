@@ -580,68 +580,48 @@ async function initializeEufyWs() {
                 const state = stateResult?.result?.state || stateResult?.state || {};
                 const driver = state.driver || {};
 
-                console.log("[WS] State received:", JSON.stringify(state, null, 2).substring(0, 500));
+                console.log("[WS] Driver status - connected:", driver.connected, "push:", driver.pushConnected);
 
-                // Get stations
-                const stations = driver.stations || state.stations || [];
-                console.log(`[WS] Found ${Object.keys(stations).length || stations.length || 0} stations`);
+                // The state contains serial number arrays - devices come via events
+                const stationSerials = state.stations || [];
+                const deviceSerials = state.devices || [];
 
-                // Stations might be an object keyed by serial number
-                const stationList = Array.isArray(stations) ? stations : Object.values(stations);
+                console.log(`[WS] Found ${stationSerials.length} stations:`, stationSerials);
+                console.log(`[WS] Found ${deviceSerials.length} devices:`, deviceSerials);
 
-                // Debug: log first station structure
-                if (stationList.length > 0) {
-                    console.log("[WS] First station keys:", Object.keys(stationList[0]));
-                }
+                // Create placeholder device objects from serial numbers
+                // Full device info will come via events
+                for (const serial of deviceSerials) {
+                    if (typeof serial === 'string') {
+                        // Infer device type from serial prefix
+                        const isCamera = serial.startsWith('T81') || serial.startsWith('T84') ||
+                                        serial.startsWith('T85') || serial.startsWith('T82') ||
+                                        serial.startsWith('T87');
+                        const isFloodlight = serial.startsWith('T8425');
+                        const isDoorbell = serial.startsWith('T82');
 
-                for (const station of stationList) {
-                    const stationName = station.name || station.stationName || station.properties?.name?.value;
-                    const stationSerial = station.serialNumber || station.serial || station.properties?.serialNumber?.value;
-                    console.log(`[WS] Station: ${stationName} (${stationSerial})`);
-                }
+                        // Create a basic device object - will be updated when we receive events
+                        const deviceObj = {
+                            serial: serial,
+                            name: serial, // Will be updated via events
+                            model: serial.substring(0, 5),
+                            type: isCamera ? 1 : 0, // 1 = camera
+                            stationSN: serial, // Standalone devices use same serial
+                            properties: {},
+                            getSerial: () => serial,
+                            getName: () => deviceObj.name,
+                            getRawDevice: () => ({
+                                device_model: deviceObj.model,
+                                device_type: deviceObj.type,
+                                station_sn: deviceObj.stationSN,
+                            }),
+                            getStationSerial: () => deviceObj.stationSN,
+                            getPropertyValue: (prop) => deviceObj.properties?.[prop]?.value,
+                        };
 
-                // Get devices - might be an object keyed by serial number
-                const devices = driver.devices || state.devices || [];
-                const deviceList = Array.isArray(devices) ? devices : Object.values(devices);
-                console.log(`[WS] Found ${deviceList.length} devices`);
-
-                // Debug: log first device structure
-                if (deviceList.length > 0) {
-                    console.log("[WS] First device keys:", Object.keys(deviceList[0]));
-                    console.log("[WS] First device:", JSON.stringify(deviceList[0], null, 2).substring(0, 1000));
-                }
-
-                for (const device of deviceList) {
-                    // Try various possible property names
-                    const serialNumber = device.serialNumber || device.serial_number || device.serial || device.properties?.serialNumber?.value;
-                    const name = device.name || device.deviceName || device.properties?.name?.value;
-                    const model = device.model || device.deviceModel || device.properties?.model?.value;
-                    const type = device.type || device.deviceType || device.properties?.type?.value;
-                    const stationSN = device.stationSerialNumber || device.station_serial_number || device.stationSN || device.properties?.stationSerialNumber?.value;
-
-                    console.log(`[WS] Device: ${name} (${model}) - Serial: ${serialNumber}`);
-
-                    // Create a device-like object for our deviceMap
-                    const deviceObj = {
-                        serial: serialNumber,
-                        name: name,
-                        model: model,
-                        type: type,
-                        stationSN: stationSN,
-                        properties: device.properties || {},
-                        // Helper methods to match eufy-security-client API
-                        getSerial: () => serialNumber,
-                        getName: () => name,
-                        getRawDevice: () => ({
-                            device_model: model,
-                            device_type: type,
-                            station_sn: stationSN,
-                        }),
-                        getStationSerial: () => stationSN,
-                        getPropertyValue: (prop) => device.properties?.[prop]?.value,
-                    };
-
-                    deviceMap.set(serialNumber, deviceObj);
+                        deviceMap.set(serial, deviceObj);
+                        console.log(`[WS] Added device: ${serial}`);
+                    }
                 }
 
                 resolve();
