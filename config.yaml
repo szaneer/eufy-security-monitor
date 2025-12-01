@@ -75,6 +75,7 @@ map:
 startup: application
 boot: auto
 homeassistant_api: true
+init: false
 
 # Port for internal access (optional)
 ports:

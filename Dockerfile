@@ -8,7 +8,9 @@ RUN apk add --no-cache \
     ffmpeg \
     python3 \
     make \
-    g++
+    g++ \
+    jq \
+    bash
 
 # Set working directory
 WORKDIR /app
@@ -22,7 +24,8 @@ RUN npm install && npm cache clean --force
 # Copy application files
 COPY app/ ./
 
-# Copy run script to s6-overlay service directory
-COPY run.sh /etc/services.d/eufy-monitor/run
-COPY finish.sh /etc/services.d/eufy-monitor/finish
-RUN chmod a+x /etc/services.d/eufy-monitor/run /etc/services.d/eufy-monitor/finish
+# Copy run script
+COPY run.sh /run.sh
+RUN chmod a+x /run.sh
+
+CMD [ "/run.sh" ]
