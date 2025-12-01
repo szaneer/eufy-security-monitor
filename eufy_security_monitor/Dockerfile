@@ -26,3 +26,6 @@ COPY app/ ./
 
 # Copy s6-overlay service files
 COPY rootfs /
+
+# Ensure s6-overlay runs as PID 1 (exec form required)
+ENTRYPOINT ["/init"]
