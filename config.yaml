@@ -1,0 +1,56 @@
+name: "Eufy Security Monitor"
+description: "AI-powered monitoring for Eufy cameras with TTS alerts"
+version: "1.0.0"
+slug: "eufy_security_monitor"
+arch:
+  - amd64
+  - aarch64
+  - armv7
+
+# Addon configuration options
+options:
+  eufy_username: ""
+  eufy_password: ""
+  eufy_country: "US"
+  ai_provider: "gemini"
+  ai_api_key: ""
+  ai_model: "gemini-2.5-flash"
+  ollama_url: "http://homeassistant.local:11434/api/generate"
+  monitoring_enabled: true
+  monitoring_interval: 60
+  tts_enabled: false
+  tts_media_player: ""
+
+schema:
+  eufy_username: str
+  eufy_password: password
+  eufy_country: str
+  ai_provider: list(ollama|openai|gemini)
+  ai_api_key: str?
+  ai_model: str
+  ollama_url: url?
+  monitoring_enabled: bool
+  monitoring_interval: int(0,1440)
+  tts_enabled: bool
+  tts_media_player: str?
+
+# Enable sidebar panel via ingress
+ingress: true
+ingress_port: 3000
+ingress_entry: "/"
+panel_icon: "mdi:cctv"
+panel_title: "Eufy Monitor"
+
+# Persistent storage
+map:
+  - config:rw
+  - share:rw
+
+# Startup settings
+startup: application
+boot: auto
+homeassistant_api: true
+
+# Port for internal access (optional)
+ports:
+  3000/tcp: null

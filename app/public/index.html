@@ -1,0 +1,1723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Eufy Security Monitor</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+
+        .container.dashboard-mode {
+            max-width: 100%;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        h1 {
+            color: #4ecca3;
+            margin-bottom: 10px;
+        }
+
+        .header-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 15px;
+            margin-top: 10px;
+            flex-wrap: wrap;
+        }
+
+        .status {
+            display: inline-block;
+            padding: 5px 15px;
+            border-radius: 20px;
+            font-size: 14px;
+            background: #232342;
+        }
+
+        .status.connected {
+            background: #1b4332;
+            color: #95d5b2;
+        }
+
+        .status.streaming {
+            background: #4a1942;
+            color: #f48fb1;
+        }
+
+        .btn-dashboard, .btn-settings {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-dashboard {
+            background: #6c5ce7;
+            color: white;
+        }
+
+        .btn-dashboard:hover {
+            background: #5b4cdb;
+        }
+
+        .btn-dashboard.active {
+            background: #e74c3c;
+        }
+
+        .btn-settings {
+            background: #2d3748;
+            color: white;
+        }
+
+        .btn-settings:hover {
+            background: #4a5568;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+        }
+
+        .main-content.hidden {
+            display: none;
+        }
+
+        .sidebar {
+            background: #232342;
+            border-radius: 12px;
+            padding: 20px;
+        }
+
+        .sidebar h2 {
+            color: #4ecca3;
+            font-size: 18px;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        .device-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .device-card {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+        }
+
+        .device-card:hover {
+            border-color: #4ecca3;
+        }
+
+        .device-card.selected {
+            border-color: #4ecca3;
+            background: #1e3a4d;
+        }
+
+        .device-card .name {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+
+        .device-card .info {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .device-card .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-top: 8px;
+        }
+
+        .device-card .badge.doorbell {
+            background: #5c4d7d;
+            color: #d4c4f9;
+        }
+
+        .device-card .badge.camera {
+            background: #4d5d7d;
+            color: #c4d4f9;
+        }
+
+        .video-container {
+            background: #232342;
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .video-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .video-header h2 {
+            color: #4ecca3;
+            font-size: 18px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .btn-start {
+            background: #4ecca3;
+            color: #1a1a2e;
+        }
+
+        .btn-start:hover:not(:disabled) {
+            background: #3db892;
+        }
+
+        .btn-stop {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .btn-stop:hover:not(:disabled) {
+            background: #c0392b;
+        }
+
+        .video-frame {
+            flex: 1;
+            background: #000;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 400px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .video-frame img {
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+        }
+
+        .video-frame .placeholder {
+            color: #666;
+            text-align: center;
+        }
+
+        .video-frame .placeholder svg {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 15px;
+            opacity: 0.3;
+        }
+
+        .log-container {
+            margin-top: 20px;
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .log-container h3 {
+            font-size: 14px;
+            color: #888;
+            margin-bottom: 10px;
+        }
+
+        .log-entry {
+            font-family: monospace;
+            font-size: 12px;
+            padding: 3px 0;
+            border-bottom: 1px solid #2a2a4e;
+        }
+
+        .log-entry.error {
+            color: #e74c3c;
+        }
+
+        .log-entry.success {
+            color: #4ecca3;
+        }
+
+        .log-entry .time {
+            color: #666;
+            margin-right: 10px;
+        }
+
+        .loading {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: #888;
+        }
+
+        .spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #333;
+            border-top-color: #4ecca3;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Dashboard Styles */
+        .dashboard-container {
+            display: none;
+        }
+
+        .dashboard-container.visible {
+            display: block;
+        }
+
+        .dashboard-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            background: #232342;
+            padding: 15px 20px;
+            border-radius: 12px;
+        }
+
+        .dashboard-header h2 {
+            color: #4ecca3;
+            font-size: 20px;
+        }
+
+        .dashboard-controls {
+            display: flex;
+            gap: 10px;
+        }
+
+        .dashboard-section {
+            margin-bottom: 30px;
+        }
+
+        .dashboard-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        .dashboard-section-header h3 {
+            color: #4ecca3;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section-badge {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-weight: normal;
+        }
+
+        .section-badge.standalone {
+            background: #27ae60;
+            color: white;
+        }
+
+        .section-badge.homebase {
+            background: #e67e22;
+            color: white;
+        }
+
+        .section-info {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 15px;
+        }
+
+        .dashboard-cell {
+            background: #232342;
+            border-radius: 12px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .dashboard-cell .cell-header {
+            padding: 10px 15px;
+            background: #1a1a2e;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .dashboard-cell .cell-header .name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .dashboard-cell .cell-video {
+            aspect-ratio: 16/9;
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .dashboard-cell .cell-video img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .dashboard-cell .cell-video .cell-placeholder {
+            color: #444;
+            text-align: center;
+        }
+
+        .dashboard-cell .cell-video .cell-placeholder svg {
+            width: 40px;
+            height: 40px;
+            margin-bottom: 8px;
+            opacity: 0.3;
+        }
+
+        .dashboard-cell .cell-video .cell-placeholder p {
+            font-size: 12px;
+        }
+
+        .dashboard-cell .cell-status {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .dashboard-cell .cell-status.connecting {
+            background: #f39c12;
+            color: #1a1a2e;
+        }
+
+        .dashboard-cell .cell-status.streaming {
+            background: #27ae60;
+            color: white;
+        }
+
+        .dashboard-cell .cell-status.error {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .dashboard-cell .cell-controls {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            display: flex;
+            gap: 5px;
+        }
+
+        .dashboard-cell .cell-btn {
+            padding: 6px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            opacity: 0.9;
+        }
+
+        .dashboard-cell .cell-btn:hover {
+            opacity: 1;
+        }
+
+        .dashboard-cell .cell-btn.play {
+            background: #27ae60;
+            color: white;
+        }
+
+        .dashboard-cell .cell-btn.stop {
+            background: #e74c3c;
+            color: white;
+        }
+
+        .override-toggle {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 6px 12px;
+            background: #1a1a2e;
+            border-radius: 6px;
+            border: 1px solid #333;
+            transition: all 0.2s;
+        }
+
+        .override-toggle:hover {
+            border-color: #e67e22;
+        }
+
+        .override-toggle input {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+            accent-color: #e67e22;
+        }
+
+        .override-toggle .override-label {
+            font-size: 12px;
+            color: #888;
+            font-weight: 500;
+        }
+
+        /* AI Query Section */
+        .ai-query-section {
+            background: #232342;
+            border-radius: 12px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            border: 1px solid #6c5ce7;
+        }
+
+        .ai-query-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 12px;
+            font-weight: 600;
+            color: #a29bfe;
+        }
+
+        .ai-icon {
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .ai-query-input-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        #ai-query-input {
+            flex: 1;
+            padding: 12px 15px;
+            border: 1px solid #333;
+            border-radius: 8px;
+            background: #1a1a2e;
+            color: #eee;
+            font-size: 14px;
+        }
+
+        #ai-query-input:focus {
+            outline: none;
+            border-color: #6c5ce7;
+        }
+
+        .btn-ai {
+            background: linear-gradient(135deg, #6c5ce7, #a29bfe);
+            color: white;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-ai:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(108, 92, 231, 0.4);
+        }
+
+        .btn-ai:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-ai.loading {
+            position: relative;
+            color: transparent;
+        }
+
+        .btn-ai.loading::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 16px;
+            height: 16px;
+            margin: -8px 0 0 -8px;
+            border: 2px solid white;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+
+        .ai-response {
+            margin-top: 15px;
+            padding: 15px;
+            background: #1a1a2e;
+            border-radius: 8px;
+            border-left: 3px solid #6c5ce7;
+        }
+
+        .ai-response-header {
+            font-size: 12px;
+            color: #6c5ce7;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        #ai-response-text {
+            color: #eee;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }
+
+        .ai-timing {
+            font-size: 12px;
+            color: #888;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid #333;
+        }
+
+        /* Monitoring Panel */
+        .monitoring-section {
+            background: #232342;
+            border-radius: 12px;
+            padding: 15px 20px;
+            margin-bottom: 20px;
+            border: 1px solid #27ae60;
+        }
+
+        .monitoring-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .monitoring-header h3 {
+            color: #27ae60;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .monitoring-indicator {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .monitoring-indicator.on {
+            background: #27ae60;
+            box-shadow: 0 0 10px #27ae60;
+            animation: pulse 2s infinite;
+        }
+
+        .monitoring-indicator.off {
+            background: #666;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .event-feed {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .event-entry {
+            padding: 10px;
+            background: #1a1a2e;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border-left: 3px solid #4ecca3;
+        }
+
+        .event-entry.unusual {
+            border-left-color: #e74c3c;
+            background: #2a1a2e;
+        }
+
+        .event-entry .event-time {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .event-entry .event-camera {
+            font-weight: 600;
+            color: #4ecca3;
+            font-size: 13px;
+        }
+
+        .event-entry .event-type {
+            display: inline-block;
+            padding: 2px 6px;
+            background: #333;
+            border-radius: 4px;
+            font-size: 10px;
+            text-transform: uppercase;
+            margin-left: 8px;
+        }
+
+        .event-entry .event-analysis {
+            margin-top: 6px;
+            font-size: 13px;
+            color: #ccc;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: #232342;
+            border-radius: 12px;
+            padding: 25px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal h2 {
+            color: #4ecca3;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #333;
+        }
+
+        .modal-close {
+            float: right;
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 24px;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: #fff;
+        }
+
+        .form-group {
+            margin-bottom: 20px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #aaa;
+            font-size: 13px;
+            margin-bottom: 8px;
+            font-weight: 600;
+        }
+
+        .form-group input,
+        .form-group select {
+            width: 100%;
+            padding: 12px;
+            background: #1a1a2e;
+            border: 1px solid #333;
+            border-radius: 8px;
+            color: #fff;
+            font-size: 14px;
+        }
+
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #4ecca3;
+        }
+
+        .form-group small {
+            color: #666;
+            font-size: 11px;
+            margin-top: 5px;
+            display: block;
+        }
+
+        .provider-section {
+            background: #1a1a2e;
+            border-radius: 8px;
+            padding: 15px;
+            margin-top: 15px;
+        }
+
+        .provider-section h3 {
+            color: #4ecca3;
+            font-size: 14px;
+            margin-bottom: 15px;
+        }
+
+        .provider-section.hidden {
+            display: none;
+        }
+
+        .btn-save {
+            background: #4ecca3;
+            color: #1a1a2e;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        .btn-save:hover {
+            background: #3db892;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            .header-controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="app-container" class="container">
+        <header>
+            <h1>Eufy Security Monitor</h1>
+            <div class="header-controls">
+                <span id="status" class="status">Connecting...</span>
+                <button id="btn-toggle-dashboard" class="btn-dashboard">Dashboard View</button>
+                <button id="btn-settings" class="btn-settings">Settings</button>
+            </div>
+        </header>
+
+        <!-- Single Camera View -->
+        <div id="single-view" class="main-content">
+            <aside class="sidebar">
+                <h2>Devices</h2>
+                <div id="device-list" class="device-list">
+                    <div class="loading">
+                        <div class="spinner"></div>
+                        <span>Loading devices...</span>
+                    </div>
+                </div>
+            </aside>
+
+            <main class="video-container">
+                <div class="video-header">
+                    <h2 id="video-title">Select a device</h2>
+                    <div class="controls">
+                        <button id="btn-start" class="btn-start" disabled>Start Stream</button>
+                        <button id="btn-stop" class="btn-stop" disabled>Stop Stream</button>
+                    </div>
+                </div>
+
+                <div class="video-frame">
+                    <div id="placeholder" class="placeholder">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        <p>Select a device and click "Start Stream"</p>
+                    </div>
+                    <img id="video-img" style="display: none;" />
+                </div>
+
+                <div class="log-container">
+                    <h3>Log</h3>
+                    <div id="log"></div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Dashboard View -->
+        <div id="dashboard-view" class="dashboard-container">
+            <div class="dashboard-header">
+                <h2>All Cameras Dashboard</h2>
+                <div class="dashboard-controls">
+                    <button id="btn-start-all" class="btn-start">Start All Streams</button>
+                    <button id="btn-stop-all" class="btn-stop">Stop All Streams</button>
+                </div>
+            </div>
+
+            <!-- AI Query Section -->
+            <div class="ai-query-section">
+                <div class="ai-query-header">
+                    <span class="ai-icon">AI</span>
+                    <span>Ask about your cameras</span>
+                </div>
+                <div class="ai-query-input-row">
+                    <input type="text" id="ai-query-input" placeholder="e.g., Is there someone in the house? What's happening in the backyard?" />
+                    <button id="btn-ai-query" class="btn-ai">Ask AI</button>
+                </div>
+                <div id="ai-response" class="ai-response" style="display: none;">
+                    <div class="ai-response-header">AI Response</div>
+                    <div id="ai-response-text"></div>
+                </div>
+            </div>
+
+            <!-- Event Monitoring Section -->
+            <div class="monitoring-section">
+                <div class="monitoring-header">
+                    <h3>
+                        <span id="monitoring-indicator" class="monitoring-indicator off"></span>
+                        Live Event Monitoring
+                    </h3>
+                    <span id="monitoring-status-text" style="color: #888; font-size: 12px;">Disabled</span>
+                </div>
+                <div id="event-feed" class="event-feed">
+                    <p style="color: #666; text-align: center; padding: 20px;">
+                        Events will appear here when monitoring is enabled
+                    </p>
+                </div>
+            </div>
+
+            <!-- Standalone Cameras Section -->
+            <div class="dashboard-section">
+                <div class="dashboard-section-header">
+                    <h3>
+                        Direct WiFi Cameras
+                        <span class="section-badge standalone">All can stream</span>
+                    </h3>
+                    <span class="section-info">These cameras connect directly via WiFi</span>
+                </div>
+                <div id="standalone-grid" class="dashboard-grid"></div>
+            </div>
+
+            <!-- HomeBase Cameras Section -->
+            <div class="dashboard-section">
+                <div class="dashboard-section-header">
+                    <h3>
+                        HomeBase Cameras
+                        <span id="homebase-badge" class="section-badge homebase">1 at a time</span>
+                    </h3>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <span class="section-info">HomeBase only supports one livestream at a time</span>
+                        <label class="override-toggle">
+                            <input type="checkbox" id="homebase-override">
+                            <span class="override-label">Force Multiple</span>
+                        </label>
+                    </div>
+                </div>
+                <div id="homebase-grid" class="dashboard-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay">
+        <div class="modal">
+            <button class="modal-close" id="btn-close-settings">&times;</button>
+            <h2>Settings</h2>
+
+            <div class="form-group">
+                <label>AI Provider</label>
+                <select id="settings-provider">
+                    <option value="ollama">Ollama (Local)</option>
+                    <option value="openai">OpenAI</option>
+                    <option value="gemini">Google Gemini</option>
+                </select>
+            </div>
+
+            <!-- Ollama Settings -->
+            <div id="ollama-settings" class="provider-section">
+                <h3>Ollama Configuration</h3>
+                <div class="form-group">
+                    <label>Ollama URL</label>
+                    <input type="text" id="settings-ollama-url" placeholder="http://localhost:11434/api/generate">
+                </div>
+                <div class="form-group">
+                    <label>Model</label>
+                    <select id="settings-ollama-model">
+                        <option value="qwen3-vl:8b">qwen3-vl:8b</option>
+                        <option value="qwen3-vl:32b">qwen3-vl:32b</option>
+                        <option value="llava:7b">llava:7b</option>
+                        <option value="llava:13b">llava:13b</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- OpenAI Settings -->
+            <div id="openai-settings" class="provider-section hidden">
+                <h3>OpenAI Configuration</h3>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" id="settings-openai-key" placeholder="sk-...">
+                </div>
+                <div class="form-group">
+                    <label>Model</label>
+                    <select id="settings-openai-model">
+                        <option value="gpt-4o">GPT-4o (Latest)</option>
+                        <option value="gpt-4o-mini">GPT-4o Mini</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Gemini Settings -->
+            <div id="gemini-settings" class="provider-section hidden">
+                <h3>Google Gemini Configuration</h3>
+                <div class="form-group">
+                    <label>API Key</label>
+                    <input type="password" id="settings-gemini-key" placeholder="AIza...">
+                </div>
+                <div class="form-group">
+                    <label>Model</label>
+                    <select id="settings-gemini-model">
+                        <option value="gemini-2.5-flash">Gemini 2.5 Flash</option>
+                        <option value="gemini-2.5-pro">Gemini 2.5 Pro</option>
+                        <option value="gemini-2.0-flash">Gemini 2.0 Flash</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Monitoring Settings -->
+            <div class="provider-section" style="margin-top: 20px; border-top: 1px solid #333; padding-top: 20px;">
+                <h3>Event Monitoring</h3>
+                <div class="form-group">
+                    <label>Monitoring Status</label>
+                    <select id="settings-monitoring-enabled">
+                        <option value="false">Disabled</option>
+                        <option value="true">Enabled</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Periodic Check Interval (minutes)</label>
+                    <select id="settings-monitoring-interval">
+                        <option value="0">Disabled</option>
+                        <option value="15">Every 15 minutes</option>
+                        <option value="30">Every 30 minutes</option>
+                        <option value="60">Every hour</option>
+                        <option value="120">Every 2 hours</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- TTS Settings -->
+            <div class="provider-section" style="margin-top: 20px; border-top: 1px solid #333; padding-top: 20px;">
+                <h3>TTS Announcements</h3>
+                <div class="form-group">
+                    <label>TTS Status</label>
+                    <select id="settings-tts-enabled">
+                        <option value="false">Disabled</option>
+                        <option value="true">Enabled</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Media Player Entity</label>
+                    <input type="text" id="settings-tts-player" placeholder="media_player.living_room_speaker">
+                    <small>Enter the entity_id of your Home Assistant media player</small>
+                </div>
+            </div>
+
+            <button id="btn-save-settings" class="btn-save">Save Settings</button>
+        </div>
+    </div>
+
+    <script src="socket.io/socket.io.js"></script>
+    <script>
+        // Handle Home Assistant ingress path
+        const basePath = window.location.pathname.replace(/\/$/, '').replace(/\/index\.html$/, '');
+
+        // Connect socket with ingress path
+        const socket = io({
+            path: `${basePath}/socket.io`
+        });
+
+        let selectedDevice = null;
+        let isStreaming = false;
+        let isDashboardMode = false;
+        let allDevices = [];
+        let dashboardStreams = new Map();
+        let activeHomebaseCameras = new Set();
+        let homebaseOverrideMode = false;
+
+        // Elements
+        const statusEl = document.getElementById('status');
+        const deviceListEl = document.getElementById('device-list');
+        const videoTitleEl = document.getElementById('video-title');
+        const btnStart = document.getElementById('btn-start');
+        const btnStop = document.getElementById('btn-stop');
+        const videoImg = document.getElementById('video-img');
+        const placeholder = document.getElementById('placeholder');
+        const logEl = document.getElementById('log');
+        const singleView = document.getElementById('single-view');
+        const dashboardView = document.getElementById('dashboard-view');
+        const standaloneGrid = document.getElementById('standalone-grid');
+        const homebaseGrid = document.getElementById('homebase-grid');
+        const btnToggleDashboard = document.getElementById('btn-toggle-dashboard');
+        const btnStartAll = document.getElementById('btn-start-all');
+        const btnStopAll = document.getElementById('btn-stop-all');
+        const appContainer = document.getElementById('app-container');
+        const homebaseOverrideCheckbox = document.getElementById('homebase-override');
+        const homebaseBadge = document.getElementById('homebase-badge');
+        const monitoringIndicator = document.getElementById('monitoring-indicator');
+        const monitoringStatusText = document.getElementById('monitoring-status-text');
+        const eventFeed = document.getElementById('event-feed');
+
+        // Override toggle
+        homebaseOverrideCheckbox?.addEventListener('change', (e) => {
+            homebaseOverrideMode = e.target.checked;
+            if (homebaseOverrideMode) {
+                homebaseBadge.textContent = 'OVERRIDE';
+                homebaseBadge.style.background = '#c0392b';
+            } else {
+                homebaseBadge.textContent = '1 at a time';
+                homebaseBadge.style.background = '#e67e22';
+            }
+        });
+
+        function log(message, type = '') {
+            const time = new Date().toLocaleTimeString();
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            entry.innerHTML = `<span class="time">[${time}]</span>${message}`;
+            logEl.insertBefore(entry, logEl.firstChild);
+        }
+
+        function updateStatus(text, className = '') {
+            statusEl.textContent = text;
+            statusEl.className = `status ${className}`;
+        }
+
+        function selectDevice(device) {
+            selectedDevice = device;
+            document.querySelectorAll('.device-card').forEach(card => {
+                card.classList.toggle('selected', card.dataset.serial === device.serial);
+            });
+            videoTitleEl.textContent = device.name;
+            btnStart.disabled = false;
+            log(`Selected device: ${device.name}`);
+        }
+
+        function toggleDashboard() {
+            isDashboardMode = !isDashboardMode;
+
+            if (isDashboardMode) {
+                if (isStreaming) {
+                    socket.emit('stop-stream');
+                }
+                singleView.classList.add('hidden');
+                dashboardView.classList.add('visible');
+                btnToggleDashboard.textContent = 'Single View';
+                btnToggleDashboard.classList.add('active');
+                appContainer.classList.add('dashboard-mode');
+                buildDashboardGrid();
+            } else {
+                stopAllDashboardStreams();
+                singleView.classList.remove('hidden');
+                dashboardView.classList.remove('visible');
+                btnToggleDashboard.textContent = 'Dashboard View';
+                btnToggleDashboard.classList.remove('active');
+                appContainer.classList.remove('dashboard-mode');
+            }
+        }
+
+        function buildDashboardGrid() {
+            standaloneGrid.innerHTML = '';
+            homebaseGrid.innerHTML = '';
+
+            const streamableDevices = allDevices.filter(d => d.isDoorbell || d.isCamera);
+            const standaloneDevices = streamableDevices.filter(d => d.isStandalone);
+            const homebaseDevices = streamableDevices.filter(d => !d.isStandalone);
+
+            function createCell(device, isHomebase = false) {
+                const cell = document.createElement('div');
+                cell.className = 'dashboard-cell';
+                cell.dataset.serial = device.serial;
+
+                let badge = '';
+                if (device.isDoorbell) {
+                    badge = '<span class="badge doorbell">Doorbell</span>';
+                } else if (device.isCamera) {
+                    badge = '<span class="badge camera">Camera</span>';
+                }
+
+                const placeholderText = device.isStandalone ? 'Click "Start All"' : 'Click Play';
+                const controlsHtml = isHomebase ? `
+                    <div class="cell-controls">
+                        <button class="cell-btn play" data-serial="${device.serial}">Play</button>
+                    </div>
+                ` : '';
+
+                cell.innerHTML = `
+                    <div class="cell-header">
+                        <span class="name">${device.name}</span>
+                        ${badge}
+                    </div>
+                    <div class="cell-video">
+                        <div class="cell-placeholder">
+                            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                            <p>${placeholderText}</p>
+                        </div>
+                        <img class="cell-img" style="display: none;" />
+                        ${controlsHtml}
+                    </div>
+                `;
+
+                if (isHomebase) {
+                    const playBtn = cell.querySelector('.cell-btn.play');
+                    if (playBtn) {
+                        playBtn.addEventListener('click', () => startHomebaseStream(device.serial));
+                    }
+                }
+
+                return cell;
+            }
+
+            standaloneDevices.forEach(device => {
+                standaloneGrid.appendChild(createCell(device, false));
+            });
+
+            homebaseDevices.forEach(device => {
+                homebaseGrid.appendChild(createCell(device, true));
+            });
+        }
+
+        function startHomebaseStream(deviceSerial) {
+            if (!homebaseOverrideMode && activeHomebaseCameras.size > 0) {
+                for (const activeSerial of activeHomebaseCameras) {
+                    if (activeSerial !== deviceSerial) {
+                        socket.emit('stop-homebase-stream', activeSerial);
+                        resetCellUI(activeSerial);
+                    }
+                }
+                activeHomebaseCameras.clear();
+            }
+
+            activeHomebaseCameras.add(deviceSerial);
+            socket.emit('start-homebase-stream', deviceSerial);
+
+            const cell = document.querySelector(`.dashboard-cell[data-serial="${deviceSerial}"]`);
+            if (cell) {
+                const btn = cell.querySelector('.cell-btn');
+                if (btn) {
+                    btn.textContent = 'Stop';
+                    btn.className = 'cell-btn stop';
+                    btn.onclick = () => stopHomebaseStream(deviceSerial);
+                }
+                addCellStatus(cell, 'Connecting...', 'connecting');
+            }
+        }
+
+        function stopHomebaseStream(deviceSerial) {
+            socket.emit('stop-homebase-stream', deviceSerial);
+            activeHomebaseCameras.delete(deviceSerial);
+            resetCellUI(deviceSerial);
+        }
+
+        function resetCellUI(deviceSerial) {
+            const cell = document.querySelector(`.dashboard-cell[data-serial="${deviceSerial}"]`);
+            if (cell) {
+                const placeholder = cell.querySelector('.cell-placeholder');
+                const img = cell.querySelector('.cell-img');
+                const status = cell.querySelector('.cell-status');
+                const btn = cell.querySelector('.cell-btn');
+
+                if (placeholder) placeholder.style.display = 'block';
+                if (img) img.style.display = 'none';
+                if (status) status.remove();
+                if (btn) {
+                    btn.textContent = 'Play';
+                    btn.className = 'cell-btn play';
+                    btn.onclick = () => startHomebaseStream(deviceSerial);
+                }
+            }
+        }
+
+        function addCellStatus(cell, text, type) {
+            let status = cell.querySelector('.cell-status');
+            if (!status) {
+                status = document.createElement('div');
+                status.className = 'cell-status';
+                cell.querySelector('.cell-video').appendChild(status);
+            }
+            status.textContent = text;
+            status.className = `cell-status ${type}`;
+        }
+
+        async function startAllDashboardStreams() {
+            const standaloneDevices = allDevices.filter(d => (d.isDoorbell || d.isCamera) && d.isStandalone);
+            btnStartAll.disabled = true;
+            btnStopAll.disabled = false;
+            updateStatus('Starting streams...', 'streaming');
+            socket.emit('start-all-streams', standaloneDevices.map(d => d.serial));
+        }
+
+        function stopAllDashboardStreams() {
+            socket.emit('stop-all-streams');
+            for (const serial of activeHomebaseCameras) {
+                socket.emit('stop-homebase-stream', serial);
+            }
+            activeHomebaseCameras.clear();
+
+            document.querySelectorAll('.dashboard-cell').forEach(cell => {
+                resetCellUI(cell.dataset.serial);
+            });
+
+            dashboardStreams.clear();
+            btnStartAll.disabled = false;
+            btnStopAll.disabled = true;
+            updateStatus('Connected', 'connected');
+        }
+
+        async function loadDevices() {
+            try {
+                const response = await fetch(`${basePath}/api/devices`);
+                const devices = await response.json();
+
+                if (devices.error) {
+                    deviceListEl.innerHTML = `<p style="color: #e74c3c">${devices.error}</p>`;
+                    return;
+                }
+
+                allDevices = devices;
+                deviceListEl.innerHTML = '';
+
+                const streamableDevices = devices.filter(d => d.isDoorbell || d.isCamera);
+
+                if (streamableDevices.length === 0) {
+                    deviceListEl.innerHTML = '<p style="color: #888">No cameras found</p>';
+                    return;
+                }
+
+                streamableDevices.forEach(device => {
+                    const card = document.createElement('div');
+                    card.className = 'device-card';
+                    card.dataset.serial = device.serial;
+
+                    let badge = '';
+                    if (device.isDoorbell) {
+                        badge = '<span class="badge doorbell">Doorbell</span>';
+                    } else if (device.isCamera) {
+                        badge = '<span class="badge camera">Camera</span>';
+                    }
+
+                    card.innerHTML = `
+                        <div class="name">${device.name}</div>
+                        <div class="info">${device.model}</div>
+                        ${badge}
+                    `;
+
+                    card.addEventListener('click', () => selectDevice(device));
+                    deviceListEl.appendChild(card);
+                });
+
+                updateStatus('Connected', 'connected');
+                log(`Loaded ${streamableDevices.length} devices`, 'success');
+            } catch (error) {
+                deviceListEl.innerHTML = '<p style="color: #e74c3c">Failed to load devices</p>';
+                log(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Event handlers
+        btnStart.addEventListener('click', () => {
+            if (!selectedDevice) return;
+            log(`Starting stream for ${selectedDevice.name}...`);
+            btnStart.disabled = true;
+            socket.emit('start-stream', selectedDevice.serial);
+        });
+
+        btnStop.addEventListener('click', () => {
+            log('Stopping stream...');
+            socket.emit('stop-stream');
+        });
+
+        btnToggleDashboard.addEventListener('click', toggleDashboard);
+        btnStartAll.addEventListener('click', startAllDashboardStreams);
+        btnStopAll.addEventListener('click', stopAllDashboardStreams);
+
+        // Socket events
+        socket.on('connect', () => {
+            log('Connected to server', 'success');
+            setTimeout(loadDevices, 2000);
+            socket.emit('get-monitoring-settings');
+        });
+
+        socket.on('disconnect', () => {
+            log('Disconnected from server', 'error');
+            updateStatus('Disconnected');
+        });
+
+        socket.on('stream-started', () => {
+            if (!isDashboardMode) {
+                isStreaming = true;
+                btnStart.disabled = true;
+                btnStop.disabled = false;
+                placeholder.style.display = 'none';
+                videoImg.style.display = 'block';
+                updateStatus('Streaming', 'streaming');
+                log('Stream started', 'success');
+            }
+        });
+
+        socket.on('stream-stopped', () => {
+            if (!isDashboardMode) {
+                isStreaming = false;
+                btnStart.disabled = false;
+                btnStop.disabled = true;
+                placeholder.style.display = 'flex';
+                videoImg.style.display = 'none';
+                updateStatus('Connected', 'connected');
+                log('Stream stopped');
+            }
+        });
+
+        socket.on('frame', (data) => {
+            if (!isDashboardMode) {
+                videoImg.src = `data:image/jpeg;base64,${data}`;
+            }
+        });
+
+        socket.on('dashboard-stream-started', (deviceSerial) => {
+            if (isDashboardMode) {
+                const cell = document.querySelector(`.dashboard-cell[data-serial="${deviceSerial}"]`);
+                if (cell) {
+                    const placeholder = cell.querySelector('.cell-placeholder');
+                    const img = cell.querySelector('.cell-img');
+                    if (placeholder) placeholder.style.display = 'none';
+                    if (img) img.style.display = 'block';
+                    addCellStatus(cell, 'LIVE', 'streaming');
+                    dashboardStreams.set(deviceSerial, true);
+                }
+                updateStatus(`Streaming (${dashboardStreams.size} cameras)`, 'streaming');
+            }
+        });
+
+        socket.on('dashboard-stream-connecting', (deviceSerial) => {
+            if (isDashboardMode) {
+                const cell = document.querySelector(`.dashboard-cell[data-serial="${deviceSerial}"]`);
+                if (cell) {
+                    addCellStatus(cell, 'Connecting...', 'connecting');
+                }
+            }
+        });
+
+        socket.on('dashboard-stream-error', ({ deviceSerial, error }) => {
+            if (isDashboardMode) {
+                const cell = document.querySelector(`.dashboard-cell[data-serial="${deviceSerial}"]`);
+                if (cell) {
+                    addCellStatus(cell, 'Error', 'error');
+                }
+            }
+        });
+
+        socket.on('dashboard-frame', ({ deviceSerial, frame }) => {
+            if (isDashboardMode) {
+                const cell = document.querySelector(`.dashboard-cell[data-serial="${deviceSerial}"]`);
+                if (cell) {
+                    const img = cell.querySelector('.cell-img');
+                    if (img) {
+                        img.src = `data:image/jpeg;base64,${frame}`;
+                    }
+                }
+            }
+        });
+
+        socket.on('error', (message) => {
+            log(`Error: ${message}`, 'error');
+            btnStart.disabled = false;
+            btnStop.disabled = true;
+        });
+
+        // Monitoring events
+        socket.on('monitoring-settings', (settings) => {
+            if (settings.enabled) {
+                monitoringIndicator.className = 'monitoring-indicator on';
+                monitoringStatusText.textContent = 'Active';
+            } else {
+                monitoringIndicator.className = 'monitoring-indicator off';
+                monitoringStatusText.textContent = 'Disabled';
+            }
+
+            document.getElementById('settings-monitoring-enabled').value = settings.enabled ? 'true' : 'false';
+            document.getElementById('settings-monitoring-interval').value = settings.periodicInterval.toString();
+            document.getElementById('settings-tts-enabled').value = settings.ttsEnabled ? 'true' : 'false';
+            document.getElementById('settings-tts-player').value = settings.ttsMediaPlayer || '';
+        });
+
+        socket.on('monitoring-event', (event) => {
+            const entryEl = document.createElement('div');
+            entryEl.className = `event-entry ${event.isUnusual ? 'unusual' : ''}`;
+            entryEl.innerHTML = `
+                <div class="event-time">${new Date(event.timestamp).toLocaleTimeString()}</div>
+                <span class="event-camera">${event.camera}</span>
+                <span class="event-type">${event.eventType}</span>
+                <div class="event-analysis">${event.aiAnalysis}</div>
+            `;
+
+            // Remove placeholder message
+            const placeholderMsg = eventFeed.querySelector('p');
+            if (placeholderMsg) placeholderMsg.remove();
+
+            eventFeed.insertBefore(entryEl, eventFeed.firstChild);
+
+            // Keep only last 50 events
+            while (eventFeed.children.length > 50) {
+                eventFeed.removeChild(eventFeed.lastChild);
+            }
+        });
+
+        // AI Query handling
+        const aiQueryInput = document.getElementById('ai-query-input');
+        const btnAiQuery = document.getElementById('btn-ai-query');
+        const aiResponse = document.getElementById('ai-response');
+        const aiResponseText = document.getElementById('ai-response-text');
+
+        let aiResponseBuffer = "";
+        let aiProgressLog = [];
+        let aiResponseStarted = false;
+
+        btnAiQuery.addEventListener('click', async () => {
+            const query = aiQueryInput.value.trim();
+            if (!query) {
+                aiQueryInput.focus();
+                return;
+            }
+
+            btnAiQuery.classList.add('loading');
+            btnAiQuery.disabled = true;
+            aiResponse.style.display = 'block';
+            aiResponseText.innerHTML = '<em style="color: #888;">Initializing...</em>';
+
+            aiProgressLog = [];
+            aiResponseBuffer = "";
+            aiResponseStarted = false;
+
+            socket.emit('ai-query', query);
+        });
+
+        aiQueryInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') btnAiQuery.click();
+        });
+
+        socket.on('ai-progress', (msg) => {
+            aiResponse.style.display = 'block';
+            if (!aiResponseStarted) {
+                aiProgressLog.push(msg);
+                aiResponseText.innerHTML = aiProgressLog.map(m =>
+                    `<div style="color: #888; font-size: 13px; margin: 2px 0;">${m}</div>`
+                ).join('');
+            }
+        });
+
+        socket.on('ai-response-chunk', (chunk) => {
+            if (!aiResponseStarted) {
+                aiResponseStarted = true;
+                const summary = aiProgressLog.length > 0
+                    ? `<div style="color: #4ecca3; font-size: 12px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #333;">Processed ${aiProgressLog.filter(m => m.includes('✓')).length} camera(s)</div>`
+                    : '';
+                aiResponseBuffer = "";
+                aiResponseText.innerHTML = summary;
+            }
+            aiResponseBuffer += chunk;
+            const existingSummary = aiResponseText.querySelector('div');
+            const summaryHtml = existingSummary ? existingSummary.outerHTML : '';
+            aiResponseText.innerHTML = summaryHtml + aiResponseBuffer.replace(/\n/g, '<br>');
+        });
+
+        socket.on('ai-response-done', (data) => {
+            btnAiQuery.classList.remove('loading');
+            btnAiQuery.disabled = false;
+
+            if (data && data.duration) {
+                const timingDiv = document.createElement('div');
+                timingDiv.className = 'ai-timing';
+                const providerName = data.provider === 'ollama' ? 'Ollama' :
+                                     data.provider === 'openai' ? 'OpenAI' : 'Gemini';
+                timingDiv.innerHTML = `Completed in ${data.duration}s using ${providerName}`;
+                aiResponseText.appendChild(timingDiv);
+            }
+
+            aiProgressLog = [];
+            aiResponseStarted = false;
+        });
+
+        socket.on('ai-error', (error) => {
+            btnAiQuery.classList.remove('loading');
+            btnAiQuery.disabled = false;
+            aiResponse.style.display = 'block';
+            aiResponseText.innerHTML = `<span style="color: #e74c3c;">Error: ${error}</span>`;
+            aiProgressLog = [];
+            aiResponseStarted = false;
+        });
+
+        // Settings modal
+        const settingsModal = document.getElementById('settings-modal');
+        const btnSettings = document.getElementById('btn-settings');
+        const btnCloseSettings = document.getElementById('btn-close-settings');
+        const btnSaveSettings = document.getElementById('btn-save-settings');
+        const settingsProvider = document.getElementById('settings-provider');
+
+        function showProviderSettings(provider) {
+            document.getElementById('ollama-settings').classList.toggle('hidden', provider !== 'ollama');
+            document.getElementById('openai-settings').classList.toggle('hidden', provider !== 'openai');
+            document.getElementById('gemini-settings').classList.toggle('hidden', provider !== 'gemini');
+        }
+
+        settingsProvider.addEventListener('change', () => {
+            showProviderSettings(settingsProvider.value);
+        });
+
+        btnSettings.addEventListener('click', () => {
+            socket.emit('get-ai-settings');
+            socket.emit('get-monitoring-settings');
+            settingsModal.classList.add('active');
+        });
+
+        btnCloseSettings.addEventListener('click', () => {
+            settingsModal.classList.remove('active');
+        });
+
+        settingsModal.addEventListener('click', (e) => {
+            if (e.target === settingsModal) {
+                settingsModal.classList.remove('active');
+            }
+        });
+
+        socket.on('ai-settings', (settings) => {
+            settingsProvider.value = settings.provider;
+            showProviderSettings(settings.provider);
+
+            document.getElementById('settings-ollama-url').value = settings.ollamaUrl || '';
+            document.getElementById('settings-ollama-model').value = settings.ollamaModel || 'qwen3-vl:8b';
+            document.getElementById('settings-openai-key').value = settings.openaiApiKey || '';
+            document.getElementById('settings-openai-model').value = settings.openaiModel || 'gpt-4o';
+            document.getElementById('settings-gemini-key').value = settings.geminiApiKey || '';
+            document.getElementById('settings-gemini-model').value = settings.geminiModel || 'gemini-2.5-flash';
+        });
+
+        btnSaveSettings.addEventListener('click', () => {
+            const aiSettings = {
+                provider: settingsProvider.value,
+                ollamaUrl: document.getElementById('settings-ollama-url').value,
+                ollamaModel: document.getElementById('settings-ollama-model').value,
+                openaiApiKey: document.getElementById('settings-openai-key').value,
+                openaiModel: document.getElementById('settings-openai-model').value,
+                geminiApiKey: document.getElementById('settings-gemini-key').value,
+                geminiModel: document.getElementById('settings-gemini-model').value,
+            };
+
+            const monitoringSettings = {
+                enabled: document.getElementById('settings-monitoring-enabled').value === 'true',
+                periodicInterval: parseInt(document.getElementById('settings-monitoring-interval').value),
+                ttsEnabled: document.getElementById('settings-tts-enabled').value === 'true',
+                ttsMediaPlayer: document.getElementById('settings-tts-player').value,
+            };
+
+            socket.emit('update-ai-settings', aiSettings);
+            socket.emit('update-monitoring-settings', monitoringSettings);
+        });
+
+        socket.on('ai-settings-updated', (result) => {
+            if (result.success) {
+                log('AI settings saved', 'success');
+            }
+        });
+
+        socket.on('monitoring-settings-updated', (result) => {
+            if (result.success) {
+                settingsModal.classList.remove('active');
+                log('Settings saved', 'success');
+                socket.emit('get-monitoring-settings');
+            }
+        });
+
+        // Initial load
+        setTimeout(loadDevices, 3000);
+    </script>
+</body>
+</html>
