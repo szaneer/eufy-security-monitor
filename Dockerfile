@@ -24,5 +24,8 @@ RUN npm install && npm cache clean --force
 # Copy application files
 COPY app/ ./
 
-# Copy s6 service files
-COPY rootfs /
+# Make run script executable
+RUN chmod +x /app/run.sh
+
+# Run the application directly (bypass s6-overlay)
+CMD ["/app/run.sh"]
