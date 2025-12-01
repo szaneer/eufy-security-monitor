@@ -18,6 +18,9 @@ const httpServer = createServer(app);
 
 const PORT = 3000;
 
+// Persistent storage directory for Eufy auth tokens
+const persistentDir = process.env.PERSISTENT_DIR || "/config/eufy-monitor";
+
 // Configuration from Home Assistant addon options (via environment)
 const config = {
     username: process.env.EUFY_USERNAME || "",
@@ -27,6 +30,7 @@ const config = {
     p2pConnectionSetup: P2PConnectionType.QUICKEST,
     pollingIntervalMinutes: 10,
     eventDurationSeconds: 10,
+    persistentDir: persistentDir, // Store auth tokens to avoid re-auth/2FA
 };
 
 // AI Settings from environment
@@ -1596,20 +1600,68 @@ async function initializeEufy() {
         return;
     }
 
+    // Ensure persistent directory exists
+    if (!fs.existsSync(persistentDir)) {
+        fs.mkdirSync(persistentDir, { recursive: true });
+        console.log(`Created persistent directory: ${persistentDir}`);
+    }
+
     console.log("Initializing Eufy client...");
     console.log(`Username: ${config.username}`);
     console.log(`Country: ${config.country}`);
+    console.log(`Persistent Dir: ${persistentDir}`);
 
-    eufy = await EufySecurity.initialize(config);
+    try {
+        eufy = await EufySecurity.initialize(config);
+    } catch (err) {
+        console.error("ERROR initializing Eufy client:", err);
+        return;
+    }
+
+    // Error handlers
+    eufy.on("connection error", (error) => {
+        console.error("[Eufy] Connection error:", error);
+    });
+
+    eufy.on("tfa request", () => {
+        console.warn("[Eufy] 2FA REQUIRED - Please check your email/SMS for verification code");
+        console.warn("[Eufy] You may need to use a separate Eufy account without 2FA, or authenticate via the official eufy-security-ws addon first");
+    });
+
+    eufy.on("captcha request", (id, captcha) => {
+        console.warn("[Eufy] CAPTCHA REQUIRED - Eufy is requesting captcha verification");
+        console.warn("[Eufy] Try again later or use eufy-security-ws addon to handle captcha");
+    });
+
+    eufy.on("connect", () => {
+        console.log("[Eufy] Connected to Eufy cloud successfully!");
+    });
+
+    eufy.on("close", () => {
+        console.log("[Eufy] Connection closed");
+    });
+
+    eufy.on("push connect", () => {
+        console.log("[Eufy] Push notification service connected");
+    });
+
+    eufy.on("push close", () => {
+        console.log("[Eufy] Push notification service disconnected");
+    });
+
+    // Station events
+    eufy.on("station added", (station) => {
+        console.log(`[Eufy] Station added: ${station.getName()} (${station.getSerial()})`);
+    });
 
     eufy.on("device added", (device) => {
         const raw = device.getRawDevice();
-        console.log(`Device added: ${device.getName()} (${raw.device_model}) - Type: ${raw.device_type}`);
+        console.log(`[Eufy] Device added: ${device.getName()} (${raw.device_model}) - Type: ${raw.device_type}`);
         deviceMap.set(device.getSerial(), device);
     });
 
     eufy.on("device removed", (device) => {
-        console.log(`Device removed: ${device.getName()}`);
+        console.log(`[Eufy] Device removed: ${device.getName()}`);
         deviceMap.delete(device.getSerial());
     });
 
@@ -1691,10 +1743,59 @@ async function initializeEufy() {
     });
 
     console.log("Connecting to Eufy cloud...");
-    await eufy.connect();
+    try {
+        await eufy.connect();
+        console.log("[Eufy] connect() completed");
+    } catch (err) {
+        console.error("[Eufy] Error during connect():", err);
+        return;
+    }
 
-    console.log("Waiting for devices to load...");
-    await new Promise(resolve => setTimeout(resolve, 15000));
+    // Wait a bit for initial device discovery
+    console.log("Waiting for initial device discovery (5s)...");
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
+    // Try to explicitly refresh data
+    if (deviceMap.size === 0) {
+        console.log("[Eufy] No devices found yet, trying refreshCloudData...");
+        try {
+            await eufy.refreshCloudData();
+            console.log("[Eufy] refreshCloudData() completed");
+            await new Promise(resolve => setTimeout(resolve, 5000));
+        } catch (err) {
+            console.log("[Eufy] refreshCloudData error:", err.message);
+        }
+    }
+
+    // Check if we got devices now
+    if (deviceMap.size === 0) {
+        console.log("[Eufy] Still no devices. Checking connection status...");
+        console.log(`[Eufy] isConnected: ${eufy.isConnected()}`);
+
+        // Try getting devices directly from the client
+        try {
+            const devices = eufy.getDevices();
+            console.log(`[Eufy] getDevices() returned ${devices.length} devices`);
+            for (const device of devices) {
+                const raw = device.getRawDevice();
+                console.log(`[Eufy] Found device: ${device.getName()} (${raw.device_model})`);
+                deviceMap.set(device.getSerial(), device);
+            }
+        } catch (err) {
+            console.log("[Eufy] getDevices() error:", err.message);
+        }
+
+        // Try getting stations
+        try {
+            const stations = eufy.getStations();
+            console.log(`[Eufy] getStations() returned ${stations.length} stations`);
+            for (const station of stations) {
+                console.log(`[Eufy] Station: ${station.getName()} (${station.getSerial()})`);
+            }
+        } catch (err) {
+            console.log("[Eufy] getStations() error:", err.message);
+        }
+    }
 
     console.log(`\nEufy client ready! Found ${deviceMap.size} devices:`);
     deviceMap.forEach((device, serial) => {
@@ -1703,6 +1804,15 @@ async function initializeEufy() {
                      Device.isCamera(raw.device_type) ? "Camera" : "Other";
         console.log(`  - ${device.getName()} (${raw.device_model}) [${type}]`);
     });
+
+    if (deviceMap.size === 0) {
+        console.warn("\n[WARNING] No devices found! Possible causes:");
+        console.warn("  1. 2FA is required - check logs above for 'tfa request'");
+        console.warn("  2. Captcha required - check logs above for 'captcha request'");
+        console.warn("  3. Wrong credentials - verify username/password in addon settings");
+        console.warn("  4. Account issue - try logging into the Eufy app first");
+        console.warn("  5. First-time auth - delete /config/eufy-monitor and restart");
+    }
 
     // Setup event monitoring
     setupEventMonitoring();
