@@ -32,7 +32,7 @@ schema:
   monitoring_enabled: bool
   monitoring_interval: int(0,1440)
   tts_enabled: bool
-  tts_media_player: entity?
+  tts_media_player: str?
 
 # Enable sidebar panel via ingress
 ingress: true
