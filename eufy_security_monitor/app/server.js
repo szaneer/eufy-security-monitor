@@ -760,8 +760,8 @@ function handleWsEvent(message) {
         }
 
         default:
-            // Log other events for debugging
-            if (event && !event.includes("property changed")) {
+            // Log other events for debugging (event might not be a string)
+            if (event && typeof event === "string" && !event.includes("property changed")) {
                 console.log(`[WS Event] ${event} - ${serialNumber}`);
             }
     }
