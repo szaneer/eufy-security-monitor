@@ -1,9 +1,9 @@
-#!/bin/bash
-# Simple startup script that reads config from options.json
+#!/command/with-contenv bash
+# shellcheck shell=bash
 
+# Read configuration from Home Assistant
 CONFIG_PATH=/data/options.json
 
-# Read configuration using jq
 export EUFY_USERNAME=$(jq -r '.eufy_username' $CONFIG_PATH)
 export EUFY_PASSWORD=$(jq -r '.eufy_password' $CONFIG_PATH)
 export EUFY_COUNTRY=$(jq -r '.eufy_country' $CONFIG_PATH)
@@ -19,7 +19,7 @@ export TTS_MEDIA_PLAYER=$(jq -r '.tts_media_player' $CONFIG_PATH)
 # Home Assistant Supervisor API for TTS
 export HA_API_URL="http://supervisor/core/api"
 
-# Get ingress path from environment or default
+# Get ingress path
 export INGRESS_PATH="${INGRESS_PATH:-/}"
 
 # Create log directory

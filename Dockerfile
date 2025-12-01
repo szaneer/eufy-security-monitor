@@ -24,9 +24,5 @@ RUN npm install && npm cache clean --force
 # Copy application files
 COPY app/ ./
 
-# Make run script executable
-RUN chmod +x /app/run.sh
-
-# Override entrypoint to bypass s6-overlay completely
-ENTRYPOINT []
-CMD ["/bin/bash", "/app/run.sh"]
+# Copy s6-overlay service files
+COPY rootfs /
