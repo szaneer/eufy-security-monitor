@@ -59,12 +59,13 @@ const haApiUrl = process.env.HA_API_URL || "http://supervisor/core/api";
 const supervisorToken = process.env.SUPERVISOR_TOKEN || "";
 const ingressPath = process.env.INGRESS_PATH || "";
 
-// Handle ingress path prefix for Home Assistant
-const basePath = ingressPath || "";
+// For HA ingress, we serve at / - HA handles the path rewriting
+// The ingressPath is passed to the frontend for correct link generation
+const basePath = "";
 
-// Socket.IO with ingress path
+// Socket.IO - serve at default path, HA handles ingress routing
 const io = new Server(httpServer, {
-    path: `${basePath}/socket.io`,
+    path: "/socket.io",
 });
 
 let eufy = null;
@@ -977,11 +978,11 @@ async function stopAllDashboardStreams() {
 
 // ==================== EXPRESS ROUTES ====================
 
-// Serve static files with ingress path support
-app.use(basePath || "/", express.static(path.join(__dirname, "public")));
+// Serve static files at root - HA ingress handles path rewriting
+app.use("/", express.static(path.join(__dirname, "public")));
 
 // API endpoint to get devices
-app.get(`${basePath}/api/devices`, async (req, res) => {
+app.get("/api/devices", async (req, res) => {
     if (!eufy) {
         return res.status(503).json({ error: "Not connected to Eufy" });
     }
@@ -1011,7 +1012,7 @@ app.get(`${basePath}/api/devices`, async (req, res) => {
 });
 
 // API endpoint to get monitoring settings
-app.get(`${basePath}/api/monitoring`, (req, res) => {
+app.get("/api/monitoring", (req, res) => {
     res.json({
         enabled: monitoringSettings.enabled,
         periodicInterval: monitoringSettings.periodicInterval,
@@ -1021,7 +1022,7 @@ app.get(`${basePath}/api/monitoring`, (req, res) => {
 });
 
 // API endpoint to get recent events
-app.get(`${basePath}/api/events`, (req, res) => {
+app.get("/api/events", (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const logPath = monitoringSettings.logFilePath;
 
@@ -1054,7 +1055,7 @@ app.get(`${basePath}/api/events`, (req, res) => {
 });
 
 // API endpoint to get Home Assistant media players
-app.get(`${basePath}/api/ha/media_players`, async (req, res) => {
+app.get("/api/ha/media_players", async (req, res) => {
     if (!supervisorToken) {
         return res.json({ error: "Not running as Home Assistant addon", entities: [] });
     }
