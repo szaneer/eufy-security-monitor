@@ -588,8 +588,16 @@ async function initializeEufyWs() {
 
                 // Stations might be an object keyed by serial number
                 const stationList = Array.isArray(stations) ? stations : Object.values(stations);
+
+                // Debug: log first station structure
+                if (stationList.length > 0) {
+                    console.log("[WS] First station keys:", Object.keys(stationList[0]));
+                }
+
                 for (const station of stationList) {
-                    console.log(`[WS] Station: ${station.name} (${station.serialNumber})`);
+                    const stationName = station.name || station.stationName || station.properties?.name?.value;
+                    const stationSerial = station.serialNumber || station.serial || station.properties?.serialNumber?.value;
+                    console.log(`[WS] Station: ${stationName} (${stationSerial})`);
                 }
 
                 // Get devices - might be an object keyed by serial number
@@ -597,12 +605,19 @@ async function initializeEufyWs() {
                 const deviceList = Array.isArray(devices) ? devices : Object.values(devices);
                 console.log(`[WS] Found ${deviceList.length} devices`);
 
+                // Debug: log first device structure
+                if (deviceList.length > 0) {
+                    console.log("[WS] First device keys:", Object.keys(deviceList[0]));
+                    console.log("[WS] First device:", JSON.stringify(deviceList[0], null, 2).substring(0, 1000));
+                }
+
                 for (const device of deviceList) {
-                    const serialNumber = device.serialNumber || device.serial_number;
-                    const name = device.name;
-                    const model = device.model;
-                    const type = device.type;
-                    const stationSN = device.stationSerialNumber || device.station_serial_number;
+                    // Try various possible property names
+                    const serialNumber = device.serialNumber || device.serial_number || device.serial || device.properties?.serialNumber?.value;
+                    const name = device.name || device.deviceName || device.properties?.name?.value;
+                    const model = device.model || device.deviceModel || device.properties?.model?.value;
+                    const type = device.type || device.deviceType || device.properties?.type?.value;
+                    const stationSN = device.stationSerialNumber || device.station_serial_number || device.stationSN || device.properties?.stationSerialNumber?.value;
 
                     console.log(`[WS] Device: ${name} (${model}) - Serial: ${serialNumber}`);
 
