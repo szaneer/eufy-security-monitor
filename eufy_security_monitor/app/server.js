@@ -576,48 +576,44 @@ async function initializeEufyWs() {
                 await sendWsCommand("start_listening");
                 console.log("[WS] Started listening for events");
 
-                // Get devices
-                const devicesResult = await sendWsCommand("device.get_properties_metadata");
-                console.log(`[WS] Got device properties metadata`);
-
-                // Get actual devices
+                // Get stations first
                 const stationsResult = await sendWsCommand("driver.get_stations");
-                console.log(`[WS] Found ${stationsResult?.stations?.length || 0} stations`);
+                console.log(`[WS] Found ${stationsResult?.result?.stations?.length || 0} stations`);
 
-                if (stationsResult?.stations) {
-                    for (const station of stationsResult.stations) {
-                        console.log(`[WS] Station: ${station.name} (${station.serial_number})`);
+                if (stationsResult?.result?.stations) {
+                    for (const station of stationsResult.result.stations) {
+                        console.log(`[WS] Station: ${station.name} (${station.serialNumber})`);
                     }
                 }
 
+                // Get devices
                 const devicesListResult = await sendWsCommand("driver.get_devices");
-                console.log(`[WS] Found ${devicesListResult?.devices?.length || 0} devices`);
+                const devices = devicesListResult?.result?.devices || [];
+                console.log(`[WS] Found ${devices.length} devices`);
 
-                if (devicesListResult?.devices) {
-                    for (const device of devicesListResult.devices) {
-                        console.log(`[WS] Device: ${device.name} (${device.model}) - Serial: ${device.serial_number}`);
+                for (const device of devices) {
+                    console.log(`[WS] Device: ${device.name} (${device.model}) - Serial: ${device.serialNumber}`);
 
-                        // Create a device-like object for our deviceMap
-                        const deviceObj = {
-                            serial: device.serial_number,
-                            name: device.name,
-                            model: device.model,
-                            type: device.type,
-                            stationSN: device.station_serial_number,
-                            // Helper methods to match eufy-security-client API
-                            getSerial: () => device.serial_number,
-                            getName: () => device.name,
-                            getRawDevice: () => ({
-                                device_model: device.model,
-                                device_type: device.type,
-                                station_sn: device.station_serial_number,
-                            }),
-                            getStationSerial: () => device.station_serial_number,
-                            getPropertyValue: (prop) => device.properties?.[prop]?.value,
-                        };
+                    // Create a device-like object for our deviceMap
+                    const deviceObj = {
+                        serial: device.serialNumber,
+                        name: device.name,
+                        model: device.model,
+                        type: device.type,
+                        stationSN: device.stationSerialNumber,
+                        // Helper methods to match eufy-security-client API
+                        getSerial: () => device.serialNumber,
+                        getName: () => device.name,
+                        getRawDevice: () => ({
+                            device_model: device.model,
+                            device_type: device.type,
+                            station_sn: device.stationSerialNumber,
+                        }),
+                        getStationSerial: () => device.stationSerialNumber,
+                        getPropertyValue: (prop) => device.properties?.[prop]?.value,
+                    };
 
-                        deviceMap.set(device.serial_number, deviceObj);
-                    }
+                    deviceMap.set(device.serialNumber, deviceObj);
                 }
 
                 resolve();
