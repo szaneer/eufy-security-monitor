@@ -572,48 +572,61 @@ async function initializeEufyWs() {
                 const versionResult = await sendWsCommand("set_api_schema", { schemaVersion: 13 });
                 console.log("[WS] API schema set:", versionResult);
 
-                // Start listening for events
-                await sendWsCommand("start_listening");
+                // Start listening for events - this returns the full state including stations and devices
+                const stateResult = await sendWsCommand("start_listening");
                 console.log("[WS] Started listening for events");
 
-                // Get stations first
-                const stationsResult = await sendWsCommand("driver.get_stations");
-                console.log(`[WS] Found ${stationsResult?.result?.stations?.length || 0} stations`);
+                // Parse stations and devices from the state result
+                const state = stateResult?.result?.state || stateResult?.state || {};
+                const driver = state.driver || {};
 
-                if (stationsResult?.result?.stations) {
-                    for (const station of stationsResult.result.stations) {
-                        console.log(`[WS] Station: ${station.name} (${station.serialNumber})`);
-                    }
+                console.log("[WS] State received:", JSON.stringify(state, null, 2).substring(0, 500));
+
+                // Get stations
+                const stations = driver.stations || state.stations || [];
+                console.log(`[WS] Found ${Object.keys(stations).length || stations.length || 0} stations`);
+
+                // Stations might be an object keyed by serial number
+                const stationList = Array.isArray(stations) ? stations : Object.values(stations);
+                for (const station of stationList) {
+                    console.log(`[WS] Station: ${station.name} (${station.serialNumber})`);
                 }
 
-                // Get devices
-                const devicesListResult = await sendWsCommand("driver.get_devices");
-                const devices = devicesListResult?.result?.devices || [];
-                console.log(`[WS] Found ${devices.length} devices`);
+                // Get devices - might be an object keyed by serial number
+                const devices = driver.devices || state.devices || [];
+                const deviceList = Array.isArray(devices) ? devices : Object.values(devices);
+                console.log(`[WS] Found ${deviceList.length} devices`);
 
-                for (const device of devices) {
-                    console.log(`[WS] Device: ${device.name} (${device.model}) - Serial: ${device.serialNumber}`);
+                for (const device of deviceList) {
+                    const serialNumber = device.serialNumber || device.serial_number;
+                    const name = device.name;
+                    const model = device.model;
+                    const type = device.type;
+                    const stationSN = device.stationSerialNumber || device.station_serial_number;
+
+                    console.log(`[WS] Device: ${name} (${model}) - Serial: ${serialNumber}`);
 
                     // Create a device-like object for our deviceMap
                     const deviceObj = {
-                        serial: device.serialNumber,
-                        name: device.name,
-                        model: device.model,
-                        type: device.type,
-                        stationSN: device.stationSerialNumber,
+                        serial: serialNumber,
+                        name: name,
+                        model: model,
+                        type: type,
+                        stationSN: stationSN,
+                        properties: device.properties || {},
                         // Helper methods to match eufy-security-client API
-                        getSerial: () => device.serialNumber,
-                        getName: () => device.name,
+                        getSerial: () => serialNumber,
+                        getName: () => name,
                         getRawDevice: () => ({
-                            device_model: device.model,
-                            device_type: device.type,
-                            station_sn: device.stationSerialNumber,
+                            device_model: model,
+                            device_type: type,
+                            station_sn: stationSN,
                         }),
-                        getStationSerial: () => device.stationSerialNumber,
+                        getStationSerial: () => stationSN,
                         getPropertyValue: (prop) => device.properties?.[prop]?.value,
                     };
 
-                    deviceMap.set(device.serialNumber, deviceObj);
+                    deviceMap.set(serialNumber, deviceObj);
                 }
 
                 resolve();
