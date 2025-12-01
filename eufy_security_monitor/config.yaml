@@ -1,6 +1,6 @@
 name: "Eufy Security Monitor"
 description: "AI-powered monitoring for Eufy cameras with TTS alerts"
-version: "1.0.12"
+version: "1.0.13"
 slug: "eufy_security_monitor"
 arch:
   - amd64

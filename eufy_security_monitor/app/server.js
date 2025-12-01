@@ -634,6 +634,7 @@ async function initializeEufyWs() {
         wsClient.on("message", (data, isBinary) => {
             // Handle binary video data
             if (isBinary) {
+                // Pipe to UI stream ffmpeg process
                 if (currentStreamDevice) {
                     const ffmpeg = wsStreamProcesses.get(currentStreamDevice);
                     if (ffmpeg && ffmpeg.stdin) {
@@ -641,6 +642,17 @@ async function initializeEufyWs() {
                             ffmpeg.stdin.write(data);
                         } catch (err) {
                             console.error("[WS] Error writing binary video data:", err.message);
+                        }
+                    }
+                }
+
+                // Also pipe to any capture process
+                for (const [key, ffmpeg] of wsStreamProcesses.entries()) {
+                    if (key.endsWith("_capture") && ffmpeg && ffmpeg.stdin) {
+                        try {
+                            ffmpeg.stdin.write(data);
+                        } catch (err) {
+                            // Ignore errors on capture processes
                         }
                     }
                 }
@@ -879,24 +891,119 @@ async function appendToEventLog(entry) {
     }
 }
 
+// Capture a frame from livestream via ws mode
+async function captureFrameViaWs(deviceSerial, timeoutMs = 5000) {
+    return new Promise(async (resolve, reject) => {
+        console.log(`[WS Capture] Starting stream for ${deviceSerial} to capture frame...`);
+
+        const chunks = [];
+        let ffmpegProcess = null;
+        let frameData = null;
+        let resolved = false;
+
+        const cleanup = () => {
+            if (ffmpegProcess) {
+                try {
+                    ffmpegProcess.stdin?.end();
+                    ffmpegProcess.kill("SIGTERM");
+                } catch (e) {}
+            }
+            // Stop the stream
+            stopWsLivestream(deviceSerial).catch(() => {});
+        };
+
+        // Set up timeout
+        const timer = setTimeout(() => {
+            if (!resolved) {
+                resolved = true;
+                cleanup();
+                if (frameData) {
+                    resolve(frameData);
+                } else {
+                    resolve(null);
+                }
+            }
+        }, timeoutMs);
+
+        try {
+            // Start ffmpeg to capture a single frame
+            ffmpegProcess = spawn("ffmpeg", [
+                "-f", "h264",
+                "-i", "pipe:0",
+                "-frames:v", "1",
+                "-f", "image2",
+                "-vcodec", "mjpeg",
+                "-q:v", "2",
+                "pipe:1"
+            ], { stdio: ["pipe", "pipe", "pipe"] });
+
+            ffmpegProcess.stdout.on("data", (data) => {
+                chunks.push(data);
+            });
+
+            ffmpegProcess.on("close", (code) => {
+                if (!resolved && chunks.length > 0) {
+                    frameData = Buffer.concat(chunks);
+                    console.log(`[WS Capture] Captured frame: ${frameData.length} bytes`);
+                    resolved = true;
+                    clearTimeout(timer);
+                    cleanup();
+                    resolve(frameData);
+                }
+            });
+
+            // Store the ffmpeg process for video data
+            wsStreamProcesses.set(deviceSerial + "_capture", ffmpegProcess);
+
+            // Start the livestream
+            await startWsLivestream(deviceSerial);
+
+            // The video data will be piped to ffmpeg via the message handler
+
+        } catch (err) {
+            console.error(`[WS Capture] Error:`, err.message);
+            if (!resolved) {
+                resolved = true;
+                clearTimeout(timer);
+                cleanup();
+                resolve(null);
+            }
+        }
+    });
+}
+
 async function handleMonitoringEvent(device, eventType, metadata) {
     if (!monitoringSettings.enabled) return;
 
     const timestamp = new Date().toISOString();
     const cameraName = device.getName();
+    const deviceSerial = device.getSerial();
 
     console.log(`[Monitor] ${eventType} detected on ${cameraName}`);
 
-    // Get cached image (battery efficient)
+    // Get image - different approach for ws mode vs direct mode
     let image = null;
-    try {
-        const picture = device.getPropertyValue(PropertyName.DevicePicture);
-        if (picture && picture.data) {
-            image = Buffer.from(picture.data);
-            console.log(`[Monitor] Got cached image for ${cameraName} (${image.length} bytes)`);
+
+    if (connectionMode === "ws") {
+        // In ws mode, capture frame from livestream
+        console.log(`[Monitor] WS mode - capturing frame from livestream...`);
+        image = await captureFrameViaWs(deviceSerial, 8000);
+        if (image) {
+            console.log(`[Monitor] Got frame for ${cameraName} (${image.length} bytes)`);
+        } else {
+            console.log(`[Monitor] Could not capture frame for ${cameraName}`);
         }
-    } catch (err) {
-        console.log(`[Monitor] No cached image available for ${cameraName}:`, err.message);
+    } else {
+        // Direct mode - try cached image first (battery efficient)
+        try {
+            const picture = device.getPropertyValue(PropertyName.DevicePicture);
+            if (picture && picture.data) {
+                image = Buffer.from(picture.data);
+                console.log(`[Monitor] Got cached image for ${cameraName} (${image.length} bytes)`);
+            }
+        } catch (err) {
+            console.log(`[Monitor] No cached image available for ${cameraName}:`, err.message);
+        }
     }
 
     // AI analysis
