@@ -109,25 +109,26 @@ async function announceToHomeAssistant(message) {
         return;
     }
 
-    console.log(`[TTS] Attempting to announce: "${message}" on ${ttsSettings.mediaPlayer}`);
+    // Sanitize message - remove any JSON artifacts or special characters
+    const cleanMessage = message
+        .replace(/```json\s*/g, "")
+        .replace(/```\s*/g, "")
+        .replace(/[{}"\[\]]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .substring(0, 250); // Keep it reasonably short for TTS
 
-    // Try the modern tts.speak service first (requires HA 2023.1+)
-    // This uses the default TTS platform configured in HA
+    console.log(`[TTS] Attempting to announce: "${cleanMessage}" on ${ttsSettings.mediaPlayer}`);
+
+    // Try legacy services first (they work with just media_player entity)
+    // Then try modern tts.speak (requires separate tts entity)
     const ttsServices = [
-        {
-            name: "tts.speak",
-            endpoint: `${haApiUrl}/services/tts/speak`,
-            body: {
-                media_player_entity_id: ttsSettings.mediaPlayer,
-                message: message,
-            },
-        },
         {
             name: "tts.google_translate_say",
             endpoint: `${haApiUrl}/services/tts/google_translate_say`,
             body: {
                 entity_id: ttsSettings.mediaPlayer,
-                message: message,
+                message: cleanMessage,
             },
         },
         {
@@ -135,7 +136,23 @@ async function announceToHomeAssistant(message) {
             endpoint: `${haApiUrl}/services/tts/cloud_say`,
             body: {
                 entity_id: ttsSettings.mediaPlayer,
-                message: message,
+                message: cleanMessage,
+            },
+        },
+        {
+            name: "tts.piper_say",
+            endpoint: `${haApiUrl}/services/tts/piper_say`,
+            body: {
+                entity_id: ttsSettings.mediaPlayer,
+                message: cleanMessage,
+            },
+        },
+        {
+            name: "tts.speak (default)",
+            endpoint: `${haApiUrl}/services/tts/speak`,
+            body: {
+                media_player_entity_id: ttsSettings.mediaPlayer,
+                message: cleanMessage,
             },
         },
     ];
@@ -526,7 +543,16 @@ Mark isUnusual as FALSE for:
     const frames = [{ cameraName, frame: image }];
 
     try {
-        const response = await queryAINonStreaming(prompt, frames);
+        let response = await queryAINonStreaming(prompt, frames);
+
+        // Strip markdown code fences if present (```json ... ```)
+        response = response.trim();
+        if (response.startsWith("```")) {
+            // Remove opening fence (```json or ```)
+            response = response.replace(/^```(?:json)?\s*\n?/, "");
+            // Remove closing fence
+            response = response.replace(/\n?```\s*$/, "");
+        }
 
         // Try to parse JSON response
         try {
@@ -536,9 +562,21 @@ Mark isUnusual as FALSE for:
                 isUnusual: parsed.isUnusual === true,
             };
         } catch {
-            // Fallback if AI doesn't return JSON
+            // Fallback if AI doesn't return valid JSON
+            // Try to extract description from malformed response
+            const descMatch = response.match(/"description"\s*:\s*"([^"]+)"/);
+            const unusualMatch = response.match(/"isUnusual"\s*:\s*(true|false)/i);
+
+            if (descMatch) {
+                return {
+                    description: descMatch[1],
+                    isUnusual: unusualMatch ? unusualMatch[1].toLowerCase() === "true" : false,
+                };
+            }
+
+            // Last resort fallback
             return {
-                description: response,
+                description: response.substring(0, 200), // Truncate long responses
                 isUnusual: response.toLowerCase().includes("unusual") ||
                            response.toLowerCase().includes("suspicious") ||
                            response.toLowerCase().includes("unknown person"),
