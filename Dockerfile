@@ -24,8 +24,5 @@ RUN npm install && npm cache clean --force
 # Copy application files
 COPY app/ ./
 
-# Copy run script
-COPY run.sh /run.sh
-RUN chmod a+x /run.sh
-
-CMD [ "/run.sh" ]
+# Copy s6 service files
+COPY rootfs /
