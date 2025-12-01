@@ -1,6 +1,6 @@
 name: "Eufy Security Monitor"
 description: "AI-powered monitoring for Eufy cameras with TTS alerts"
-version: "1.0.6"
+version: "1.0.7"
 slug: "eufy_security_monitor"
 arch:
   - amd64
@@ -9,22 +9,32 @@ arch:
 
 # Addon configuration options
 options:
+  # Connection mode: "direct" or "ws" (eufy-security-ws addon)
+  connection_mode: "direct"
+  # For direct mode: Eufy credentials
   eufy_username: ""
   eufy_password: ""
   eufy_country: "US"
+  # For ws mode: eufy-security-ws addon URL
+  eufy_ws_url: "ws://addon_eufy-security-ws:3000"
+  # AI settings
   ai_provider: "gemini"
   ai_api_key: ""
   ai_model: "gemini-2.5-flash"
   ollama_url: "http://homeassistant.local:11434/api/generate"
+  # Monitoring settings
   monitoring_enabled: true
   monitoring_interval: 60
+  # TTS settings
   tts_enabled: false
   tts_media_player: ""
 
 schema:
-  eufy_username: str
-  eufy_password: password
-  eufy_country: str
+  connection_mode: list(direct|ws)
+  eufy_username: str?
+  eufy_password: password?
+  eufy_country: str?
+  eufy_ws_url: str?
   ai_provider: list(ollama|openai|gemini)
   ai_api_key: str?
   ai_model: str

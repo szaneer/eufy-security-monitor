@@ -9,8 +9,9 @@ const { Server } = require("socket.io");
 const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
+const WebSocket = require("ws");
 
-// Import eufy-security-client
+// Import eufy-security-client (for direct mode)
 const { EufySecurity, P2PConnectionType, Device, PropertyName } = require("eufy-security-client");
 
 const app = express();
@@ -18,10 +19,14 @@ const httpServer = createServer(app);
 
 const PORT = 3000;
 
-// Persistent storage directory for Eufy auth tokens
+// Connection mode: "direct" or "ws" (eufy-security-ws)
+const connectionMode = process.env.CONNECTION_MODE || "direct";
+const eufyWsUrl = process.env.EUFY_WS_URL || "ws://addon_eufy-security-ws:3000";
+
+// Persistent storage directory for Eufy auth tokens (direct mode only)
 const persistentDir = process.env.PERSISTENT_DIR || "/config/eufy-monitor";
 
-// Configuration from Home Assistant addon options (via environment)
+// Configuration for direct mode
 const config = {
     username: process.env.EUFY_USERNAME || "",
     password: process.env.EUFY_PASSWORD || "",
@@ -30,8 +35,14 @@ const config = {
     p2pConnectionSetup: P2PConnectionType.QUICKEST,
     pollingIntervalMinutes: 10,
     eventDurationSeconds: 10,
-    persistentDir: persistentDir, // Store auth tokens to avoid re-auth/2FA
+    persistentDir: persistentDir,
 };
+
+// WebSocket client for eufy-security-ws mode
+let wsClient = null;
+let wsMessageId = 1;
+let wsPendingRequests = new Map();
+let wsStreamProcesses = new Map(); // Track ffmpeg processes for WS streams
 
 // AI Settings from environment
 let aiSettings = {
@@ -517,6 +528,256 @@ async function queryAIStreaming(query, frames, socket, startTime) {
 
     const totalDuration = startTime ? ((Date.now() - startTime) / 1000).toFixed(1) : null;
     socket.emit("ai-response-done", { duration: totalDuration, provider: aiSettings.provider });
+}
+
+// ==================== EUFY-SECURITY-WS CLIENT ====================
+
+// Send a command to eufy-security-ws and wait for response
+function sendWsCommand(command, args = {}) {
+    return new Promise((resolve, reject) => {
+        if (!wsClient || wsClient.readyState !== WebSocket.OPEN) {
+            reject(new Error("WebSocket not connected"));
+            return;
+        }
+
+        const messageId = `msg_${wsMessageId++}`;
+        const message = {
+            messageId,
+            command,
+            ...args,
+        };
+
+        const timeout = setTimeout(() => {
+            wsPendingRequests.delete(messageId);
+            reject(new Error(`Timeout waiting for response to ${command}`));
+        }, 30000);
+
+        wsPendingRequests.set(messageId, { resolve, reject, timeout });
+        wsClient.send(JSON.stringify(message));
+    });
+}
+
+// Initialize connection to eufy-security-ws
+async function initializeEufyWs() {
+    console.log(`[WS] Connecting to eufy-security-ws at ${eufyWsUrl}...`);
+
+    return new Promise((resolve, reject) => {
+        wsClient = new WebSocket(eufyWsUrl);
+
+        wsClient.on("open", async () => {
+            console.log("[WS] Connected to eufy-security-ws!");
+
+            try {
+                // Set the API schema version
+                const versionResult = await sendWsCommand("set_api_schema", { schemaVersion: 13 });
+                console.log("[WS] API schema set:", versionResult);
+
+                // Start listening for events
+                await sendWsCommand("start_listening");
+                console.log("[WS] Started listening for events");
+
+                // Get devices
+                const devicesResult = await sendWsCommand("device.get_properties_metadata");
+                console.log(`[WS] Got device properties metadata`);
+
+                // Get actual devices
+                const stationsResult = await sendWsCommand("driver.get_stations");
+                console.log(`[WS] Found ${stationsResult?.stations?.length || 0} stations`);
+
+                if (stationsResult?.stations) {
+                    for (const station of stationsResult.stations) {
+                        console.log(`[WS] Station: ${station.name} (${station.serial_number})`);
+                    }
+                }
+
+                const devicesListResult = await sendWsCommand("driver.get_devices");
+                console.log(`[WS] Found ${devicesListResult?.devices?.length || 0} devices`);
+
+                if (devicesListResult?.devices) {
+                    for (const device of devicesListResult.devices) {
+                        console.log(`[WS] Device: ${device.name} (${device.model}) - Serial: ${device.serial_number}`);
+
+                        // Create a device-like object for our deviceMap
+                        const deviceObj = {
+                            serial: device.serial_number,
+                            name: device.name,
+                            model: device.model,
+                            type: device.type,
+                            stationSN: device.station_serial_number,
+                            // Helper methods to match eufy-security-client API
+                            getSerial: () => device.serial_number,
+                            getName: () => device.name,
+                            getRawDevice: () => ({
+                                device_model: device.model,
+                                device_type: device.type,
+                                station_sn: device.station_serial_number,
+                            }),
+                            getStationSerial: () => device.station_serial_number,
+                            getPropertyValue: (prop) => device.properties?.[prop]?.value,
+                        };
+
+                        deviceMap.set(device.serial_number, deviceObj);
+                    }
+                }
+
+                resolve();
+            } catch (err) {
+                console.error("[WS] Error during initialization:", err);
+                reject(err);
+            }
+        });
+
+        wsClient.on("message", (data, isBinary) => {
+            // Handle binary video data
+            if (isBinary) {
+                if (currentStreamDevice) {
+                    const ffmpeg = wsStreamProcesses.get(currentStreamDevice);
+                    if (ffmpeg && ffmpeg.stdin) {
+                        try {
+                            ffmpeg.stdin.write(data);
+                        } catch (err) {
+                            console.error("[WS] Error writing binary video data:", err.message);
+                        }
+                    }
+                }
+                return;
+            }
+
+            try {
+                const message = JSON.parse(data.toString());
+
+                // Handle responses to our commands
+                if (message.messageId && wsPendingRequests.has(message.messageId)) {
+                    const { resolve, reject, timeout } = wsPendingRequests.get(message.messageId);
+                    clearTimeout(timeout);
+                    wsPendingRequests.delete(message.messageId);
+
+                    if (message.errorCode) {
+                        reject(new Error(message.errorCode));
+                    } else {
+                        resolve(message);
+                    }
+                    return;
+                }
+
+                // Handle events
+                if (message.type === "event") {
+                    handleWsEvent(message);
+                }
+            } catch (err) {
+                console.error("[WS] Error parsing message:", err);
+            }
+        });
+
+        wsClient.on("error", (error) => {
+            console.error("[WS] WebSocket error:", error);
+            reject(error);
+        });
+
+        wsClient.on("close", () => {
+            console.log("[WS] WebSocket connection closed");
+            wsClient = null;
+        });
+    });
+}
+
+// Handle events from eufy-security-ws
+function handleWsEvent(message) {
+    const { event, source, serialNumber } = message;
+
+    switch (event) {
+        case "device motion detected":
+        case "device person detected":
+        case "device pet detected":
+        case "device vehicle detected":
+        case "device sound detected":
+        case "device doorbell rings": {
+            const device = deviceMap.get(serialNumber);
+            if (device && monitoringSettings.enabled) {
+                const eventType = event.replace("device ", "").replace(" detected", "").replace("doorbell ", "");
+                console.log(`[WS Event] ${eventType} on ${device.getName()}`);
+                handleMonitoringEvent(device, eventType);
+            }
+            break;
+        }
+
+        case "station livestream started": {
+            console.log(`[WS Event] Livestream started for ${serialNumber}`);
+            const device = deviceMap.get(currentStreamDevice);
+            if (device && currentSocket) {
+                // Get video codec from the message metadata
+                const videoCodec = message.metadata?.videoCodec || 0; // 0 = H264, 1 = H265
+                const ffmpeg = startFFmpeg(videoCodec, currentSocket);
+                wsStreamProcesses.set(currentStreamDevice, ffmpeg);
+                currentSocket.emit("stream-started");
+            }
+            break;
+        }
+
+        case "station livestream stopped": {
+            console.log(`[WS Event] Livestream stopped for ${serialNumber}`);
+            const ffmpeg = wsStreamProcesses.get(currentStreamDevice);
+            if (ffmpeg) {
+                ffmpeg.stdin?.end();
+                ffmpeg.kill("SIGTERM");
+                wsStreamProcesses.delete(currentStreamDevice);
+            }
+            if (currentSocket) {
+                currentSocket.emit("stream-stopped");
+            }
+            break;
+        }
+
+        case "station livestream video data": {
+            // Handle video data chunks from eufy-security-ws
+            const deviceSerial = message.serialNumber || currentStreamDevice;
+            const ffmpeg = wsStreamProcesses.get(deviceSerial);
+            if (ffmpeg && ffmpeg.stdin && message.buffer) {
+                try {
+                    const videoData = Buffer.from(message.buffer.data || message.buffer);
+                    ffmpeg.stdin.write(videoData);
+                } catch (err) {
+                    console.error("[WS] Error writing video data:", err.message);
+                }
+            }
+            break;
+        }
+
+        default:
+            // Log other events for debugging
+            if (event && !event.includes("property changed")) {
+                console.log(`[WS Event] ${event} - ${serialNumber}`);
+            }
+    }
+}
+
+// Start livestream via eufy-security-ws
+async function startWsLivestream(deviceSerial) {
+    const device = deviceMap.get(deviceSerial);
+    if (!device) {
+        throw new Error("Device not found");
+    }
+
+    console.log(`[WS] Starting livestream for ${device.getName()}...`);
+
+    // Note: eufy-security-ws provides video via a different mechanism
+    // We'll need to receive the stream data via the websocket
+    const result = await sendWsCommand("device.start_livestream", {
+        serialNumber: deviceSerial,
+    });
+
+    return result;
+}
+
+// Stop livestream via eufy-security-ws
+async function stopWsLivestream(deviceSerial) {
+    console.log(`[WS] Stopping livestream for ${deviceSerial}...`);
+
+    const result = await sendWsCommand("device.stop_livestream", {
+        serialNumber: deviceSerial,
+    });
+
+    return result;
 }
 
 // ==================== EVENT MONITORING ====================
@@ -1068,8 +1329,15 @@ app.use("/", express.static(path.join(__dirname, "public")));
 
 // API endpoint to get devices
 app.get("/api/devices", async (req, res) => {
-    if (!eufy) {
-        return res.status(503).json({ error: "Not connected to Eufy" });
+    // Check connection based on mode
+    if (connectionMode === "ws") {
+        if (!wsClient || wsClient.readyState !== WebSocket.OPEN) {
+            return res.status(503).json({ error: "Not connected to eufy-security-ws" });
+        }
+    } else {
+        if (!eufy) {
+            return res.status(503).json({ error: "Not connected to Eufy" });
+        }
     }
 
     const deviceList = Array.from(deviceMap.values()).map(device => {
@@ -1249,6 +1517,31 @@ io.on("connection", (socket) => {
         console.log(`Starting stream for device: ${deviceSerial}`);
         isDashboardMode = false;
 
+        // Handle WS mode
+        if (connectionMode === "ws") {
+            if (!wsClient || wsClient.readyState !== WebSocket.OPEN) {
+                socket.emit("error", "Not connected to eufy-security-ws");
+                return;
+            }
+
+            try {
+                const device = deviceMap.get(deviceSerial);
+                if (!device) {
+                    socket.emit("error", `Device not found: ${deviceSerial}`);
+                    return;
+                }
+
+                currentStreamDevice = deviceSerial;
+                console.log(`[WS] Starting stream for ${device.getName()}...`);
+                await startWsLivestream(deviceSerial);
+            } catch (error) {
+                console.error("Error starting WS stream:", error);
+                socket.emit("error", error.message || "Failed to start stream");
+            }
+            return;
+        }
+
+        // Direct mode
         if (!eufy) {
             socket.emit("error", "Not connected to Eufy");
             return;
@@ -1316,6 +1609,28 @@ io.on("connection", (socket) => {
 
     socket.on("stop-stream", async () => {
         console.log("Stop stream requested");
+
+        // Handle WS mode
+        if (connectionMode === "ws") {
+            if (currentStreamDevice) {
+                try {
+                    await stopWsLivestream(currentStreamDevice);
+                } catch (err) {
+                    console.error("[WS] Error stopping stream:", err.message);
+                }
+
+                const ffmpeg = wsStreamProcesses.get(currentStreamDevice);
+                if (ffmpeg) {
+                    ffmpeg.stdin?.end();
+                    ffmpeg.kill("SIGTERM");
+                    wsStreamProcesses.delete(currentStreamDevice);
+                }
+                currentStreamDevice = null;
+            }
+            socket.emit("stream-stopped");
+            return;
+        }
+
         await stopStream();
         socket.emit("stream-stopped");
     });
@@ -1828,12 +2143,27 @@ httpServer.listen(PORT, async () => {
     console.log(`Eufy Security Monitor - Home Assistant Addon`);
     console.log(`${"=".repeat(50)}`);
     console.log(`Server running on port ${PORT}`);
+    console.log(`Connection mode: ${connectionMode}`);
     console.log(`Ingress path: ${ingressPath || "(none)"}`);
     console.log(`Monitoring enabled: ${monitoringSettings.enabled}`);
     console.log(`TTS enabled: ${ttsSettings.enabled}`);
     console.log(`${"=".repeat(50)}\n`);
 
-    await initializeEufy();
+    // Initialize based on connection mode
+    if (connectionMode === "ws") {
+        try {
+            await initializeEufyWs();
+            console.log(`\nConnected via eufy-security-ws! Found ${deviceMap.size} devices.`);
+
+            // Setup monitoring for WS mode
+            startPeriodicMonitoring();
+        } catch (err) {
+            console.error("Failed to connect to eufy-security-ws:", err.message);
+            console.error("Make sure the eufy-security-ws addon is running and accessible.");
+        }
+    } else {
+        await initializeEufy();
+    }
 });
 
 process.on("SIGINT", async () => {
@@ -1841,6 +2171,9 @@ process.on("SIGINT", async () => {
     if (periodicTimer) clearInterval(periodicTimer);
     await stopStream();
     await stopAllDashboardStreams();
+    if (wsClient) {
+        wsClient.close();
+    }
     if (eufy) {
         await eufy.close();
     }
