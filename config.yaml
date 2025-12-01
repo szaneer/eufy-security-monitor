@@ -22,42 +22,17 @@ options:
   tts_media_player: ""
 
 schema:
-  - name: eufy_username
-    required: true
-  - name: eufy_password
-    required: true
-  - name: eufy_country
-    default: "US"
-  - name: ai_provider
-    selector:
-      select:
-        options:
-          - ollama
-          - openai
-          - gemini
-  - name: ai_api_key
-    required: false
-  - name: ai_model
-    default: "gemini-2.5-flash"
-  - name: ollama_url
-    required: false
-  - name: monitoring_enabled
-    selector:
-      boolean:
-  - name: monitoring_interval
-    selector:
-      number:
-        min: 0
-        max: 1440
-        unit_of_measurement: minutes
-  - name: tts_enabled
-    selector:
-      boolean:
-  - name: tts_media_player
-    required: false
-    selector:
-      entity:
-        domain: media_player
+  eufy_username: str
+  eufy_password: password
+  eufy_country: str
+  ai_provider: list(ollama|openai|gemini)
+  ai_api_key: str?
+  ai_model: str
+  ollama_url: url?
+  monitoring_enabled: bool
+  monitoring_interval: int(0,1440)
+  tts_enabled: bool
+  tts_media_player: str?
 
 # Enable sidebar panel via ingress
 ingress: true
