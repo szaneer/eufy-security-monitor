@@ -24,8 +24,8 @@ RUN npm install && npm cache clean --force
 # Copy application files
 COPY app/ ./
 
-# Copy s6-overlay service files
-COPY rootfs /
+# Copy run script to root and make executable
+COPY run.sh /
+RUN chmod a+x /run.sh
 
-# Ensure s6-overlay runs as PID 1 (exec form required)
-ENTRYPOINT ["/init"]
+CMD [ "/run.sh" ]
