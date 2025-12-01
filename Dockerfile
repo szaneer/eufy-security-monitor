@@ -27,5 +27,6 @@ COPY app/ ./
 # Make run script executable
 RUN chmod +x /app/run.sh
 
-# Run the application directly (bypass s6-overlay)
-CMD ["/app/run.sh"]
+# Override entrypoint to bypass s6-overlay completely
+ENTRYPOINT []
+CMD ["/bin/bash", "/app/run.sh"]
